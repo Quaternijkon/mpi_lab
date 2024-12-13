@@ -1,26 +1,29 @@
 #include <mpi.h>
 #include <stdio.h>
-#include <math.h>
 #include <stdlib.h>
 
 int main(int argc, char** argv) {
     int rank, size;
     double local_value, sum;
-    int log2_size;
-    int i;
+    int log2_size = 0;
+    int temp_size, i;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     
-    log2_size = (int)(log((double)size) / log(2.0));
-    if (pow(2, log2_size) != size) {
-        if (rank == 0) {
-            printf("进程数必须是2的幂。\n");
+    temp_size = size;
+    while (temp_size > 1) {
+        if (temp_size % 2 != 0) {
+            if (rank == 0) {
+                printf("进程数必须是2的幂。\n");
+            }
+            MPI_Finalize();
+            return 0;
         }
-        MPI_Finalize();
-        return 0;
+        temp_size /= 2;
+        log2_size++;
     }
 
     
