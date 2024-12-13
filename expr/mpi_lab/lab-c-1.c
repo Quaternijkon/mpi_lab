@@ -1,11 +1,16 @@
 #include <mpi.h>
 #include <stdio.h>
-#include <math.h>
 #include <stdlib.h>
 
 
 int is_power_of_two(int n) {
     return (n != 0) && ((n & (n -1)) == 0);
+}
+
+int compute_log2(int n) {
+    int logn = 0;
+    while (n >>= 1) ++logn;
+    return logn;
 }
 
 int main(int argc, char** argv) {
@@ -29,7 +34,7 @@ int main(int argc, char** argv) {
     }
 
     
-    logN = (int)(log((double)size) / log(2.0));
+    logN = compute_log2(size);
 
     
     local_data = (double)(rank + 1);
@@ -40,8 +45,9 @@ int main(int argc, char** argv) {
         int partner = rank ^ (1 << i); 
 
         
-        MPI_Send(&local_sum, 1, MPI_DOUBLE, partner, 0, MPI_COMM_WORLD);
-        MPI_Recv(&recv_sum, 1, MPI_DOUBLE, partner, 0, MPI_COMM_WORLD, &status);
+        MPI_Sendrecv(&local_sum, 1, MPI_DOUBLE, partner, 0,
+                     &recv_sum, 1, MPI_DOUBLE, partner, 0,
+                     MPI_COMM_WORLD, &status);
 
         
         local_sum += recv_sum;
