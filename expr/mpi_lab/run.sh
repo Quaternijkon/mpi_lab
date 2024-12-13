@@ -4,4 +4,4 @@
 NUM_PROCESSES=64
 
 # 运行 MPI 程序
-mpirun -np $NUM_PROCESSES ./lab-b
+mpirun -np $NUM_PROCESSES ./lab-c-1
