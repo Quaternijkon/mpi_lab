@@ -1,13 +1,11 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <math.h>
 
 
 int is_power_of_two(int n) {
-    return (n != 0) && ((n & (n - 1)) == 0);
+    return (n != 0) && ((n & (n -1)) == 0);
 }
-
 
 int compute_log2(int n) {
     int logn = 0;
@@ -18,10 +16,8 @@ int compute_log2(int n) {
 int main(int argc, char** argv) {
     int rank, size;
     int logN;
-    MPI_Status status;
-
-    
     double local_data, local_sum, recv_sum;
+    MPI_Status status;
 
     
     MPI_Init(&argc, &argv);
@@ -31,7 +27,7 @@ int main(int argc, char** argv) {
     
     if (!is_power_of_two(size)) {
         if (rank == 0) {
-            fprintf(stderr, "错误：进程数必须是 2 的幂次。\n");
+            fprintf(stderr, "进程数必须是2的幂次方。\n");
         }
         MPI_Finalize();
         exit(EXIT_FAILURE);
@@ -41,18 +37,16 @@ int main(int argc, char** argv) {
     logN = compute_log2(size);
 
     
-    local_data = (double)(rank + 1);  
+    local_data = (double)(rank + 1);
     local_sum = local_data;
-
-    printf("进程 %d: 初始值 = %f\n", rank, local_data);
 
     
     for (int i = 0; i < logN; i++) {
-        int partner = rank ^ (1 << i);  
+        int partner = rank ^ (1 << i); 
 
         
-        MPI_Sendrecv(&local_sum, 1, MPI_DOUBLE, partner, 0,   
-                     &recv_sum, 1, MPI_DOUBLE, partner, 0,   
+        MPI_Sendrecv(&local_sum, 1, MPI_DOUBLE, partner, 0,
+                     &recv_sum, 1, MPI_DOUBLE, partner, 0,
                      MPI_COMM_WORLD, &status);
 
         
@@ -60,7 +54,7 @@ int main(int argc, char** argv) {
     }
 
     
-    printf("进程 %d: 最终全和结果 = %f\n", rank, local_sum);
+    printf("进程 %d 的全和结果: %f\n", rank, local_sum);
 
     
     MPI_Finalize();
