@@ -5,16 +5,26 @@
 #include <math.h>
 
 #ifndef N
-#define N 7
+#define N 50
 #endif
 
 #define INDEX(i, j) (((i)*N)+(j))
 
 
 void random_array(double *a, int num) {
-    for(int i = 0; i < num; i++) {
-        srand(time(NULL));  
-        a[i] = rand() % 100;
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            a[INDEX(i, j)] = i * N + j;  
+        }
+    }
+
+    
+    printf("Matrix A (initialized with indices):\n");
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%6.2f ", a[INDEX(i, j)]);
+        }
+        printf("\n");
     }
 }
 
@@ -123,7 +133,7 @@ int main(int argc, char *argv[]) {
         }
 
         
-        printf("\nMatrix A (input matrix):\n");
+        printf("\nMatrix A (initialized with indices):\n");
         print_matrix(A);
 
         printf("\nMatrix B (calculated result):\n");
