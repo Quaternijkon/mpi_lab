@@ -11,9 +11,20 @@
 #define INDEX(i, j) (((i)*N)+(j))
 
 
+void print_matrix(const char *name, double *matrix, int n) {
+    printf("Matrix %s:\n", name);
+    for(int i = 0; i < n; i++) {
+        for(int j = 0; j < n; j++) {
+            printf("%6.2lf ", matrix[INDEX(i, j)]);
+        }
+        printf("\n");
+    }
+    printf("\n");
+}
+
 void random_array(double *a, int num) {
+    srand(time(NULL)); 
     for(int i = 0; i < num; i++) {
-        srand(time(NULL));
         a[i] = rand() % 100;
     }
 }
@@ -54,6 +65,10 @@ int main(int argc, char *argv[]) {
     
     if (id_procs == num_1) {
         random_array(A, N*N);
+        
+        
+        print_matrix("A", A, N);
+        
         comp(A, B2, N*N);
     }
 
@@ -64,24 +79,24 @@ int main(int argc, char *argv[]) {
     for(int i = 0; i < N-2; i++) {
         if (id_procs == num_1) {
             int dest = i % num_1;
-            int tag = i / num_1;
+            int tag = i / num_procs; 
             MPI_Send(&A[INDEX(i, 0)], N*3, MPI_DOUBLE, dest, tag, MPI_COMM_WORLD);
         }
     }
 
-    for(int i = 0; i < (N-2)/num_1; i++) {
-        if (id_procs != num_1) {
-            MPI_Recv(&A[INDEX(3*ctn, 0)], 3*N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
+    for(int i = 0; i < (N-2)/num_procs; i++) { 
+        if (id_procs != num_procs -1) { 
+            MPI_Recv(&A[INDEX(3*ctn, 0)], 3*N, MPI_DOUBLE, num_procs -1, ctn, MPI_COMM_WORLD, &status);
             ctn++;
         }
     }
-    if (id_procs < (N-2) % num_1) {
-        MPI_Recv(&A[INDEX(ctn*3, 0)], 3*N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
+    if (id_procs < (N-2) % num_procs) { 
+        MPI_Recv(&A[INDEX(ctn*3, 0)], 3*N, MPI_DOUBLE, num_procs -1, ctn, MPI_COMM_WORLD, &status);
         ctn++;
     }
 
     
-    if (id_procs != num_1) {
+    if (id_procs != num_procs -1) {
         for(int i = 1; i <= ctn; i++) {
             for(int j = 1; j < N-1; j++) {
                 B[INDEX(i, j)] = (A[INDEX(i-1, j)]+A[INDEX(i, j+1)]+A[INDEX(i+1, j)]+A[INDEX(i, j-1)]) / 4.0;
@@ -91,22 +106,24 @@ int main(int argc, char *argv[]) {
 
     
     for(int i = 0; i < N-2; i++) {
-        if (id_procs == num_1) {
-            int src = i % num_1;
-            MPI_Recv(&B[INDEX(i+1, 1)], N-2, MPI_DOUBLE, src, i/num_1+N, MPI_COMM_WORLD, &status);
+        if (id_procs == num_procs -1) {
+            int src = i % num_procs;
+            MPI_Recv(&B[INDEX(i+1, 1)], N-2, MPI_DOUBLE, src, i/num_procs + N, MPI_COMM_WORLD, &status);
         }
         else {
             for(int j = 0; j < ctn; j++)
-                MPI_Send(&B[INDEX(j+1, 1)], N-2, MPI_DOUBLE, num_1, j+N, MPI_COMM_WORLD);
+                MPI_Send(&B[INDEX(j+1, 1)], N-2, MPI_DOUBLE, num_procs -1, j + N, MPI_COMM_WORLD);
         }
     }
 
-
-    if (id_procs == num_1) {
+    if (id_procs == num_procs -1) {
+        
+        print_matrix("B", B, N);
+        
         if(check(B, B2)) {
-            printf("Done.No Error\n");
+            printf("Done. No Error\n");
         } else {
-            printf("Error Occured!\n");
+            printf("Error Occurred!\n");
         }
     }
     free(A);
