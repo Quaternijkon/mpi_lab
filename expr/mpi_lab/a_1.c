@@ -12,8 +12,18 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(world_comm, &world_size);
 
     
-    int groupsize = atoi(argv[1]); 
+    int groupsize = 4; 
+    if (argc > 1) {
+        groupsize = atoi(argv[1]);
+        if (groupsize <= 0) {
+            if (world_rank == 0) {
+                fprintf(stderr, "Invalid groupsize. It must be a positive integer.\n");
+            }
+            MPI_Abort(world_comm, 1);
+        }
+    }
 
+    
     int color = world_rank / groupsize;
     int key = world_rank % groupsize;
 
