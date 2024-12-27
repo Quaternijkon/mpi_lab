@@ -5,11 +5,10 @@
 #include <math.h>
 
 #ifndef N
-#define N 7
+#define N 50
 #endif
 
 #define INDEX(i, j) (((i)*N)+(j))
-
 
 void random_array(double *a, int num) {
     srand(12345);  
@@ -17,7 +16,6 @@ void random_array(double *a, int num) {
         a[i] = rand() % 100;  
     }
 }
-
 
 void comp(double *A, double *B, int a, int b) {
     for (int i = 1; i <= a; i++) {
@@ -31,7 +29,6 @@ void comp(double *A, double *B, int a, int b) {
     }
 }
 
-
 int check(double *B, double *C) {
     for (int i = 1; i < N - 1; i++) {
         for (int j = 1; j < N - 1; j++) {
@@ -43,7 +40,6 @@ int check(double *B, double *C) {
     }
     return 1;
 }
-
 
 void print_matrix(double *mat) {
     for (int i = 0; i < N; i++) {
@@ -62,11 +58,12 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     MPI_Comm_rank(MPI_COMM_WORLD, &id_procs);
 
-    int rows = sqrt(num_procs);
-    int cols = num_procs / rows;
+    int rows = sqrt(num_procs);    
+    int cols = num_procs / rows;   
     int a = (N - 2 + rows - 1) / rows;  
     int b = (N - 2 + cols - 1) / cols;  
 
+    
     A = (double*)malloc((a + 2) * (b + 2) * sizeof(double));  
     B = (double*)malloc((a + 2) * (b + 2) * sizeof(double));
     B2 = (double*)malloc(N * N * sizeof(double));  
