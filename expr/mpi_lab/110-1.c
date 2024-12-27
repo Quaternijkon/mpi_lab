@@ -30,9 +30,14 @@ void random_array(double *a, int num) {
 
 
 void comp(double *A, double *B, int num) {
-    for(int i = 1; i < N-1; i++) {
-        for(int j = 1; j < N-1; j++) {
-            B[INDEX(i, j)] = (A[INDEX(i-1, j)] + A[INDEX(i, j+1)] + A[INDEX(i+1, j)] + A[INDEX(i, j-1)]) / 4.0;
+    for (int i = 1; i < N-1; i++) {
+        for (int j = 1; j < N-1; j++) {
+            int up = (i - 1 + N) % N;  
+            int down = (i + 1) % N;    
+            int left = (j - 1 + N) % N;  
+            int right = (j + 1) % N;     
+
+            B[INDEX(i, j)] = (A[INDEX(up, j)] + A[INDEX(i, right)] + A[INDEX(down, j)] + A[INDEX(i, left)]) / 4.0;
         }
     }
 }
