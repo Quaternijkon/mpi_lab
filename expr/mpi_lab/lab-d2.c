@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <mpi.h>
+#include <time.h> // 需要包含以使用 time()
 
 typedef struct {
     MPI_Comm grid_comm; /* 全局网格通信器 */
@@ -16,6 +17,9 @@ typedef struct {
 
 void grid_init(GridInfo *grid);
 void FoxAlgorithm(double *A, double *B, double *C, int size, GridInfo *grid);
+void matrix_creation(double **pA, double **pB, double **pC, int size);
+void matrix_init(double *A, double *B, int size, int sup);
+void matrix_print(double *A, int size);
 
 void grid_init(GridInfo *grid)
 {
@@ -32,13 +36,16 @@ void grid_init(GridInfo *grid)
     grid->grid_dim = (int)sqrt(grid->n_proc);
     /* 错误检查：进程数应该是完全平方数 */
     if (grid->grid_dim * grid->grid_dim != grid->n_proc) {
-        printf("[!] 进程数不是完全平方数!\n");
+        if (old_rank == 0) {
+            printf("[!] 进程数不是完全平方数!\n");
+        }
+        MPI_Finalize();
         exit(-1);
     }
 
     /* 设置网格维度 */
     dimensions[0] = dimensions[1] = grid->grid_dim;
-    wrap_around[0] = wrap_around[1] = 1;
+    wrap_around[0] = wrap_around[1] = 1; // 是否环绕
 
     MPI_Cart_create(MPI_COMM_WORLD, 2, dimensions, wrap_around, 1, &(grid->grid_comm));
     MPI_Comm_rank(grid->grid_comm, &(grid->my_rank));
@@ -47,13 +54,13 @@ void grid_init(GridInfo *grid)
     grid->my_col = coordinates[1];
 
     /* 创建行通信器 */
-    free_coords[0] = 0;
-    free_coords[1] = 1;
+    free_coords[0] = 0; // 保留第0维度（行）
+    free_coords[1] = 1; // 禁用第1维度（列）
     MPI_Cart_sub(grid->grid_comm, free_coords, &(grid->row_comm));
 
     /* 创建列通信器 */
-    free_coords[0] = 1;
-    free_coords[1] = 0;
+    free_coords[0] = 1; // 禁用第0维度（行）
+    free_coords[1] = 0; // 保留第1维度（列）
     MPI_Cart_sub(grid->grid_comm, free_coords, &(grid->col_comm));
 }
 
@@ -66,10 +73,20 @@ void matrix_creation(double **pA, double **pB, double **pC, int size)
 
 void matrix_init(double *A, double *B, int size, int sup)
 {
-    srand(time(NULL));
+    srand(time(NULL)); // 初始化随机数种子
     for (int i = 0; i < size * size; ++i) {
-        *(A + i) = rand() % sup + 1;
-        *(B + i) = rand() % sup + 1;
+        A[i] = rand() % sup + 1;
+        B[i] = rand() % sup + 1;
+    }
+}
+
+void matrix_print(double *A, int size)
+{
+    for (int i = 0; i < size; ++i) {
+        for (int j = 0; j < size; ++j) {
+            printf("%6.2f ", A[i * size + j]);
+        }
+        printf("\n");
     }
 }
 
@@ -104,6 +121,8 @@ void FoxAlgorithm(double *A, double *B, double *C, int size, GridInfo *grid)
         }
         MPI_Sendrecv_replace(B, size * size, MPI_DOUBLE, dst, 0, src, 0, grid->col_comm, &status);
     }
+
+    free(buff_A);
 }
 
 int main(int argc, char **argv)
@@ -111,7 +130,7 @@ int main(int argc, char **argv)
     double *pA, *pB, *pC;
     double *local_pA, *local_pB, *local_pC;
     int matrix_size = 100;
-    
+
     if (argc == 2) {
         sscanf(argv[1], "%d", &matrix_size);
     }
@@ -123,13 +142,22 @@ int main(int argc, char **argv)
 
     /* 错误检查：确保矩阵大小是网格维度的整数倍 */
     if (matrix_size % grid.grid_dim != 0) {
-        printf("[!] matrix_size mod sqrt(n_processes) != 0 !\n");
+        if (grid.my_rank == 0) {
+            printf("[!] matrix_size mod sqrt(n_processes) != 0 !\n");
+        }
+        MPI_Finalize();
         exit(-1);
     }
 
     if (grid.my_rank == 0) {
         matrix_creation(&pA, &pB, &pC, matrix_size);
         matrix_init(pA, pB, matrix_size, 10);
+
+        printf("Matrix A (size=%d):\n", matrix_size);
+        matrix_print(pA, matrix_size);
+        printf("\nMatrix B (size=%d):\n", matrix_size);
+        matrix_print(pB, matrix_size);
+        printf("\n");
     }
 
     int local_matrix_size = matrix_size / grid.grid_dim;
@@ -175,8 +203,9 @@ int main(int argc, char **argv)
 
     /* 输出结果 */
     if (grid.my_rank == 0) {
-        
-        printf("Matrix multiplication completed\n");
+        printf("Matrix multiplication completed\n\n");
+        printf("Matrix C (result of A * B):\n");
+        matrix_print(pC, matrix_size);
     }
 
     /* 清理内存 */
