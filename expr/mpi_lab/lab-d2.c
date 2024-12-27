@@ -3,121 +3,110 @@
 #include <stdlib.h>
 #include <math.h>
 
-// 矩阵乘法函数：C += A * B
-void matrixMultiply(int* A, int* B, int* C, int n) {
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n; ++j) {
-            for (int k = 0; k < n; ++k) {
-                C[i * n + j] += A[i * n + k] * B[k * n + j];
-            }
-        }
-    }
-}
+#define N 1024 
 
-int main(int argc, char* argv[]) {
-    MPI_Init(&argc, &argv);
-
+int main(int argc, char *argv[]) {
     int rank, size;
+    int dims[2], periods[2] = {1, 1}; 
+    int coords[2];
+    MPI_Comm grid_comm, row_comm, col_comm;
+    int sqrt_p;
+    int i, j, k;
+
+    MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    // 确保进程数为平方数
-    int grid_size = (int)sqrt(size);
-    if (grid_size * grid_size != size) {
+    
+    sqrt_p = (int)sqrt((double)size);
+    if (sqrt_p * sqrt_p != size) {
         if (rank == 0) {
-            printf("进程数必须是一个完全平方数！\n");
+            printf("Number of processes must be a perfect square.\n");
         }
         MPI_Abort(MPI_COMM_WORLD, -1);
     }
 
-    int n = 4; // 矩阵维度（应可被 grid_size 整除）
-    int block_size = n / grid_size; // 子块的大小
+    
+    dims[0] = dims[1] = sqrt_p;
 
-    // 创建 2D 进程网格
-    MPI_Comm grid_comm;
-    int dims[2] = {grid_size, grid_size};
-    int periods[2] = {1, 1}; // 允许环绕通信
+    
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &grid_comm);
-
-    int coords[2];
     MPI_Cart_coords(grid_comm, rank, 2, coords);
+    int my_row = coords[0];
+    int my_col = coords[1];
 
-    int row = coords[0];
-    int col = coords[1];
+    
+    MPI_Comm_split(grid_comm, my_row, my_col, &row_comm);
+    MPI_Comm_split(grid_comm, my_col, my_row, &col_comm);
 
-    // 初始化矩阵（简单初始化为 rank 值）
-    int* A = (int*)malloc(block_size * block_size * sizeof(int));
-    int* B = (int*)malloc(block_size * block_size * sizeof(int));
-    int* C = (int*)malloc(block_size * block_size * sizeof(int));
-    int* A_temp = (int*)malloc(block_size * block_size * sizeof(int));
-    int* B_temp = (int*)malloc(block_size * block_size * sizeof(int));
+    
+    int block_size = N / sqrt_p;
 
-    for (int i = 0; i < block_size * block_size; ++i) {
-        A[i] = rank; // 示例数据
-        B[i] = rank; // 示例数据
-        C[i] = 0;
+    
+    double *A_block = (double *)malloc(block_size * block_size * sizeof(double));
+    double *B_block = (double *)malloc(block_size * block_size * sizeof(double));
+    double *C_block = (double *)calloc(block_size * block_size, sizeof(double)); 
+    double *A_temp = (double *)malloc(block_size * block_size * sizeof(double));
+
+    
+    for (i = 0; i < block_size * block_size; i++) {
+        A_block[i] = 1.0; 
+        B_block[i] = 1.0; 
     }
 
-    for (int k = 0; k < grid_size; ++k) {
-        // 广播 A 子块
-        int Bcaster = row * grid_size + (row + k) % grid_size;
-        if (rank == Bcaster) {
-            for (int i = 0; i < block_size * block_size; ++i) {
-                A_temp[i] = A[i];
+    
+    for (k = 0; k < sqrt_p; k++) {
+        int root = (my_row + k) % sqrt_p; 
+
+        
+        if (root == my_col) {
+            for (i = 0; i < block_size * block_size; i++) {
+                A_temp[i] = A_block[i]; 
             }
-            for (int l = 0; l < grid_size; ++l) {
-                int dst = row * grid_size + l;
-                if (dst != rank) {
-                    MPI_Send(A_temp, block_size * block_size, MPI_INT, dst, 0, MPI_COMM_WORLD);
+        }
+        MPI_Bcast(A_temp, block_size * block_size, MPI_DOUBLE, root, row_comm);
+
+        
+        for (i = 0; i < block_size; i++) {
+            for (j = 0; j < block_size; j++) {
+                double sum = 0.0;
+                for (int l = 0; l < block_size; l++) {
+                    sum += A_temp[i * block_size + l] * B_block[l * block_size + j];
                 }
+                C_block[i * block_size + j] += sum;
             }
-        } else {
-            MPI_Recv(A_temp, block_size * block_size, MPI_INT, Bcaster, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         }
 
-        // 执行矩阵乘法
-        matrixMultiply(A_temp, B, C, block_size);
-
-        // 循环移动 B 子块
-        int send_B = (row * grid_size + col + grid_size - 1) % grid_size;
-        int recv_B = (row * grid_size + col + 1) % grid_size;
-
-        if ((row % 2) == 0) {
-            MPI_Send(B, block_size * block_size, MPI_INT, send_B, 1, MPI_COMM_WORLD);
-            MPI_Recv(B_temp, block_size * block_size, MPI_INT, recv_B, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        } else {
-            MPI_Recv(B_temp, block_size * block_size, MPI_INT, recv_B, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Send(B, block_size * block_size, MPI_INT, send_B, 1, MPI_COMM_WORLD);
-        }
-
-        // 更新 B 矩阵
-        for (int i = 0; i < block_size * block_size; ++i) {
-            B[i] = B_temp[i];
-        }
+        
+        int src, dest;
+        MPI_Cart_shift(grid_comm, 0, -1, &src, &dest);
+        MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE,
+                             dest, 0, src, 0, grid_comm, MPI_STATUS_IGNORE);
     }
 
-    // 输出结果
-    MPI_Barrier(MPI_COMM_WORLD);
-    for (int i = 0; i < size; ++i) {
-        if (rank == i) {
-            printf("进程 %d 结果:\n", rank);
-            for (int j = 0; j < block_size; ++j) {
-                for (int k = 0; k < block_size; ++k) {
-                    printf("%d ", C[j * block_size + k]);
-                }
-                printf("\n");
-            }
-            printf("\n");
-        }
-        MPI_Barrier(MPI_COMM_WORLD);
+    
+    double *C_result = NULL;
+    if (rank == 0) {
+        C_result = (double *)malloc(N * N * sizeof(double));
+    }
+    MPI_Gather(C_block, block_size * block_size, MPI_DOUBLE,
+               C_result, block_size * block_size, MPI_DOUBLE, 0, grid_comm);
+
+    
+    if (rank == 0) {
+        printf("C_result[0][0] = %f\n", C_result[0]);
+        free(C_result);
     }
 
-    // 释放内存
-    free(A);
-    free(B);
-    free(C);
+    
+    free(A_block);
+    free(B_block);
+    free(C_block);
     free(A_temp);
-    free(B_temp);
+
+    MPI_Comm_free(&grid_comm);
+    MPI_Comm_free(&row_comm);
+    MPI_Comm_free(&col_comm);
 
     MPI_Finalize();
     return 0;
