@@ -3,15 +3,24 @@
 #include <stdlib.h>
 #include <math.h>
 
-
-void initialize_matrices(double *A, double *B, int n, int block_size, int rank, int size) {
-    for(int i = 0; i < block_size * block_size; i++) {
-        A[i] = 1.0; 
-        B[i] = 1.0;
+// 根据特定规则初始化矩阵 A 和 B
+void initialize_matrices(double *A, double *B, int n, int block_size, int rank, int size, int coords[2]) {
+    // 计算全局起始行和列索引
+    int sqrt_p = (int)sqrt((double)size);
+    int row_offset = coords[0] * block_size;
+    int col_offset = coords[1] * block_size;
+    
+    for(int i = 0; i < block_size; i++) {
+        for(int j = 0; j < block_size; j++) {
+            int global_i = row_offset + i;
+            int global_j = col_offset + j;
+            A[i * block_size + j] = global_i + global_j;      // 规则：A[i][j] = i + j
+            B[i * block_size + j] = global_i - global_j;      // 规则：B[i][j] = i - j
+        }
     }
 }
 
-
+// 打印矩阵（仅在根进程调用）
 void print_matrix(double *matrix, int n) {
     for(int i = 0; i < n; i++) {
         for(int j = 0; j < n; j++) {
@@ -21,7 +30,7 @@ void print_matrix(double *matrix, int n) {
     }
 }
 
-
+// 矩阵乘法并累加结果到 C
 void multiply_add(double *A, double *B, double *C, int block_size) {
     for(int i = 0; i < block_size; i++) {
         for(int j = 0; j < block_size; j++) {
@@ -34,7 +43,7 @@ void multiply_add(double *A, double *B, double *C, int block_size) {
 
 int main(int argc, char *argv[]) {
     int rank, size;
-    int n = 8; 
+    int n = 8; // 矩阵大小，假设为 8x8，可根据需要调整
     int sqrt_p;
     int block_size;
     
@@ -42,7 +51,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     
-    
+    // 确保进程数为完全平方数
     sqrt_p = (int)sqrt((double)size);
     if(sqrt_p * sqrt_p != size) {
         if(rank == 0) {
@@ -52,7 +61,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
     
-    
+    // 确保矩阵大小能被 sqrt_p 整除
     if(n % sqrt_p != 0) {
         if(rank == 0) {
             printf("矩阵大小必须能被 sqrt(p) 整除。\n");
@@ -63,10 +72,10 @@ int main(int argc, char *argv[]) {
     
     block_size = n / sqrt_p;
     
-    
+    // 创建二维网格通信子
     MPI_Comm grid_comm;
     int dims[2] = {sqrt_p, sqrt_p};
-    int periods[2] = {1, 1}; 
+    int periods[2] = {1, 1}; // 环形通信
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &grid_comm);
     
     int coords[2];
@@ -74,92 +83,73 @@ int main(int argc, char *argv[]) {
     int my_row = coords[0];
     int my_col = coords[1];
     
-    
+    // 创建行和列通信子
     MPI_Comm row_comm, col_comm;
     MPI_Comm_split(grid_comm, my_row, my_col, &row_comm);
     MPI_Comm_split(grid_comm, my_col, my_row, &col_comm);
     
-    
+    // 分配内存给子矩阵
     double *A_block = (double *)malloc(block_size * block_size * sizeof(double));
     double *B_block = (double *)malloc(block_size * block_size * sizeof(double));
     double *C_block = (double *)malloc(block_size * block_size * sizeof(double));
     double *A_temp = (double *)malloc(block_size * block_size * sizeof(double));
     
-    
-    initialize_matrices(A_block, B_block, n, block_size, rank, size);
-    
-    
+    // 初始化 C 为 0
     for(int i = 0; i < block_size * block_size; i++) {
         C_block[i] = 0.0;
     }
     
+    // 初始化矩阵 A 和 B
+    initialize_matrices(A_block, B_block, n, block_size, rank, size, coords);
     
+    // 创建临时缓冲区用于广播
     MPI_Barrier(MPI_COMM_WORLD);
     
     for(int step = 0; step < sqrt_p; step++) {
         int root = (my_row + step) % sqrt_p;
         
         if(root == my_col) {
-            
+            // 发送 A_block 到广播
             MPI_Bcast(A_block, block_size * block_size, MPI_DOUBLE, root, row_comm);
-            
+            // 将 A_block 复制到 A_temp
             for(int i = 0; i < block_size * block_size; i++) {
                 A_temp[i] = A_block[i];
             }
         } else {
-            
+            // 接收广播的 A_block
             MPI_Bcast(A_temp, block_size * block_size, MPI_DOUBLE, root, row_comm);
         }
         
-        
+        // 进行乘法累加
         multiply_add(A_temp, B_block, C_block, block_size);
         
-        
+        // 循环上移 B_block
         int source, dest;
         MPI_Cart_shift(grid_comm, 1, -1, &source, &dest);
         MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE, dest, 0, source, 0, grid_comm, MPI_STATUS_IGNORE);
     }
     
-    
+    // 收集所有 C_block 到根进程
     double *C = NULL;
     if(rank == 0) {
         C = (double *)malloc(n * n * sizeof(double));
     }
     
-    
-    MPI_Datatype block_type, block_type_resized;
-    MPI_Type_vector(block_size, block_size, sqrt_p * block_size, MPI_DOUBLE, &block_type);
-    MPI_Type_create_resized(block_type, 0, sizeof(double), &block_type_resized);
-    MPI_Type_commit(&block_type_resized);
-    
-    int *displs = NULL;
-    int *recvcounts = NULL;
-    if(rank == 0) {
-        displs = (int *)malloc(size * sizeof(int));
-        recvcounts = (int *)malloc(size * sizeof(int));
-        for(int i = 0; i < size; i++) {
-            displs[i] = i;
-            recvcounts[i] = 1;
-        }
-    }
-    
+    // 使用 MPI_Gather 收集所有 C_block
     MPI_Gather(C_block, block_size * block_size, MPI_DOUBLE, C, block_size * block_size, MPI_DOUBLE, 0, grid_comm);
     
-    
+    // 在根进程打印结果
     if(rank == 0) {
         printf("结果矩阵 C:\n");
         print_matrix(C, n);
         free(C);
-        free(displs);
-        free(recvcounts);
     }
     
-    
+    // 释放资源
     free(A_block);
     free(B_block);
     free(C_block);
     free(A_temp);
-    MPI_Type_free(&block_type_resized);
     MPI_Comm_free(&row_comm);
     MPI_Comm_free(&col_comm);
     MPI_Comm_free(&grid_comm);
