@@ -4,28 +4,33 @@
 #include <time.h>
 #include <math.h>
 
-#define INDEX(i, j, N) (((i)*(N)) + (j)) // Ensure correct index calculation
+#ifndef N
+#define N 50
+#endif
+
+#define INDEX(i, j) (((i)*N)+(j))
+
 
 void random_array(double *a, int num) {
-    srand(time(NULL)); // Seed the random number generator once
-    for (int i = 0; i < num; i++) {
+    for(int i = 0; i < num; i++) {
+        srand(time(NULL));
         a[i] = rand() % 100;
     }
 }
 
-void comp(double *A, double *B, int N) {
-    for (int i = 1; i < N - 1; i++) {
-        for (int j = 1; j < N - 1; j++) {
-            B[INDEX(i, j, N)] = (A[INDEX(i - 1, j, N)] + A[INDEX(i, j + 1, N)] + A[INDEX(i + 1, j, N)] + A[INDEX(i, j - 1, N)]) / 4.0;
+void comp(double *A, double *B, int num) {
+    for(int i = 1; i < N-1; i++) {
+        for(int j = 1; j < N-1; j++) {
+            B[INDEX(i, j)] = (A[INDEX(i-1, j)]+A[INDEX(i, j+1)]+A[INDEX(i+1, j)]+A[INDEX(i, j-1)]) / 4.0;
         }
     }
 }
 
-int check(double *B, double *C, int N) {
-    for (int i = 1; i < N - 1; i++) {
-        for (int j = 1; j < N - 1; j++) {
-            if (fabs(B[INDEX(i, j, N)] - C[INDEX(i, j, N)]) >= 1e-2) {
-                printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j, N)], C[INDEX(i, j, N)]);
+int check(double *B, double *C) {
+    for(int i = 1; i < N-1; i++) {
+        for(int j = 1; j < N-1; j++) {
+            if (fabs(B[INDEX(i, j)]-C[INDEX(i, j)]) >= 1e-2) {
+                printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j)], C[INDEX(i, j)]);
                 return 0;
             }
         }
@@ -33,23 +38,21 @@ int check(double *B, double *C, int N) {
     return 1;
 }
 
-void print_matrix(double *matrix, int N) {
+// Function to print a matrix
+void print_matrix(double *matrix) {
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
-            printf("%6.2f ", matrix[INDEX(i, j, N)]);
+            printf("%lf ", matrix[INDEX(i, j)]);
         }
         printf("\n");
     }
 }
 
 int main(int argc, char *argv[]) {
-    // Get matrix size N from command line argument or default to 50
-    int N = (argc > 1) ? atoi(argv[1]) : 50;
-    
     double *A, *B, *B2;
-    A = (double *)malloc(N * N * sizeof(double));
-    B = (double *)malloc(N * N * sizeof(double));
-    B2 = (double *)malloc(N * N * sizeof(double));
+    A = (double*)malloc(N*N*sizeof(double));
+    B = (double*)malloc(N*N*sizeof(double));
+    B2= (double*)malloc(N*N*sizeof(double));
 
     int id_procs, num_procs, num_1;
     MPI_Status status;
@@ -57,69 +60,68 @@ int main(int argc, char *argv[]) {
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     MPI_Comm_rank(MPI_COMM_WORLD, &id_procs);
 
-    num_1 = num_procs - 1;
-
+    num_1 = num_procs -1;
     // Proc#N-1 randomize the data
     if (id_procs == num_1) {
-        random_array(A, N * N);
-        comp(A, B2, N);
+        random_array(A, N*N);
+        comp(A, B2, N*N);
+        
+        // Print matrix A
+        printf("Matrix A (Process %d):\n", id_procs);
+        print_matrix(A);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    // Proc#N-1 broadcasts 3 lines of A to each Proc
+    // Proc#N-1 broadcast 3 lines of A to each Proc
     int ctn = 0;
-    for (int i = 0; i < N - 2; i++) {
+    for(int i = 0; i < N-2; i++) {
         if (id_procs == num_1) {
             int dest = i % num_1;
             int tag = i / num_1;
-            MPI_Send(&A[INDEX(i, 0, N)], N * 3, MPI_DOUBLE, dest, tag, MPI_COMM_WORLD);
+            MPI_Send(&A[INDEX(i, 0)], N*3, MPI_DOUBLE, dest, tag, MPI_COMM_WORLD);
         }
     }
 
-    for (int i = 0; i < (N - 2) / num_1; i++) {
+    for(int i = 0; i < (N-2)/num_1; i++) {
         if (id_procs != num_1) {
-            MPI_Recv(&A[INDEX(3 * ctn, 0, N)], 3 * N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
+            MPI_Recv(&A[INDEX(3*ctn, 0)], 3*N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
             ctn++;
         }
     }
-    if (id_procs < (N - 2) % num_1) {
-        MPI_Recv(&A[INDEX(ctn * 3, 0, N)], 3 * N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
+    if (id_procs < (N-2) % num_1) {
+        MPI_Recv(&A[INDEX(ctn*3, 0)], 3*N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
         ctn++;
     }
 
-    // Compute
+    // compute
     if (id_procs != num_1) {
-        for (int i = 1; i <= ctn; i++) {
-            for (int j = 1; j < N - 1; j++) {
-                B[INDEX(i, j, N)] = (A[INDEX(i - 1, j, N)] + A[INDEX(i, j + 1, N)] + A[INDEX(i + 1, j, N)] + A[INDEX(i, j - 1, N)]) / 4.0;
+        for(int i = 1; i <= ctn; i++) {
+            for(int j = 1; j < N-1; j++) {
+                B[INDEX(i, j)] = (A[INDEX(i-1, j)]+A[INDEX(i, j+1)]+A[INDEX(i+1, j)]+A[INDEX(i, j-1)]) / 4.0;
             }
         }
     }
 
-    // Gather the results
-    for (int i = 0; i < N - 2; i++) {
+    // Gather
+    for(int i = 0; i < N-2; i++) {
         if (id_procs == num_1) {
             int src = i % num_1;
-            MPI_Recv(&B[INDEX(i + 1, 1, N)], N - 2, MPI_DOUBLE, src, i / num_1 + N, MPI_COMM_WORLD, &status);
-        } else {
-            for (int j = 0; j < ctn; j++) {
-                MPI_Send(&B[INDEX(j + 1, 1, N)], N - 2, MPI_DOUBLE, num_1, j + N, MPI_COMM_WORLD);
-            }
+            MPI_Recv(&B[INDEX(i+1, 1)], N-2, MPI_DOUBLE, src, i/num_1+N, MPI_COMM_WORLD, &status);
+        }
+        else {
+            for(int j = 0; j < ctn; j++)
+                MPI_Send(&B[INDEX(j+1, 1)], N-2, MPI_DOUBLE, num_1, j+N, MPI_COMM_WORLD);
         }
     }
 
-    // Output results in process num_1
+    // Print matrix B (only from the last process)
     if (id_procs == num_1) {
-        // Print matrices for verification
-        printf("Matrix A:\n");
-        print_matrix(A, N);
-        printf("Matrix B (after computation):\n");
-        print_matrix(B, N);
-
-        // Check result
-        if (check(B, B2, N)) {
-            printf("Done. No Error\n");
+        printf("Matrix B (Process %d):\n", id_procs);
+        print_matrix(B);
+        
+        if(check(B, B2)) {
+            printf("Done.No Error\n");
         } else {
             printf("Error Occurred!\n");
         }
@@ -128,7 +130,6 @@ int main(int argc, char *argv[]) {
     free(A);
     free(B);
     free(B2);
-
     MPI_Finalize();
     return 0;
 }
