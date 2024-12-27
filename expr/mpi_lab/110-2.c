@@ -21,16 +21,16 @@ void fill_matrix(double *a, int num) {
 }
 
 void comp(double *A, double *B, int a, int b) {
-    for (int i = 1; i <= a; i++) {
-        for (int j = 1; j <= b; j++) {
+    for (int i = 0; i <= a; i++) {
+        for (int j = 0; j <= b; j++) {
             B[INDEX(i, j)] = (A[INDEX(i-1, j)] + A[INDEX(i, j+1)] + A[INDEX(i+1, j)] + A[INDEX(i, j-1)]) / 4.0;
         }
     }
 }
 
 int check(double *B, double *C) {
-    for (int i = 1; i < N-1; i++) {
-        for (int j = 1; j < N-1; j++) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
             if (fabs(B[INDEX(i, j)] - C[INDEX(i, j)]) >= 1e-2) {
                 printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j)], C[INDEX(i, j)]);
                 return 0;
@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
     
     if (id_procs == 0) {
         fill_matrix(A, N * N);
-        comp(A, B2, N-2, N-2);
+        comp(A, B2, N-1, N-1);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
