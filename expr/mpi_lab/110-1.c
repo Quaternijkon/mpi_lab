@@ -5,7 +5,7 @@
 #include <math.h>
 
 #ifndef N
-#define N 50
+#define N 7
 #endif
 
 #define INDEX(i, j) (((i)*N)+(j))
