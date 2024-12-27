@@ -1,9 +1,11 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define ROOT 0
 #define MESSAGE "Hello from root!"
+#define SEQ_SIZE 16  
 
 int main(int argc, char *argv[]) {
     MPI_Init(&argc, &argv);
@@ -12,41 +14,66 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    MPI_Comm node_comm;
-    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
- 
-    int node_rank, node_size;
-    MPI_Comm_rank(node_comm, &node_rank);
-    MPI_Comm_size(node_comm, &node_size);
-
-    MPI_Comm leader_comm;
-    int is_leader = (node_rank == 0) ? 1 : 0;
-    MPI_Comm_split(MPI_COMM_WORLD, is_leader, world_rank, &leader_comm);
-
-    char message_buffer[100];
-    memset(message_buffer, 0, sizeof(message_buffer));
-
-    if (leader_comm != MPI_COMM_NULL) {
-        int leader_rank, leader_size;
-        MPI_Comm_rank(leader_comm, &leader_rank);
-        MPI_Comm_size(leader_comm, &leader_size);
-
-        if (world_rank == ROOT) {
-            strcpy(message_buffer, MESSAGE);
+    
+    int groupsize = 4; 
+    if (argc > 1) {
+        groupsize = atoi(argv[1]);
+        if (groupsize <= 0) {
+            if (world_rank == ROOT) {
+                fprintf(stderr, "Invalid groupsize. It must be a positive integer.\n");
+            }
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
-
-        MPI_Bcast(message_buffer, sizeof(message_buffer), MPI_CHAR, 
-                  (world_rank == ROOT) ? 0 : MPI_UNDEFINED, leader_comm);
     }
 
-    MPI_Bcast(message_buffer, sizeof(message_buffer), MPI_CHAR, 0, node_comm);
+    
+    int color = world_rank / groupsize;
+    int key = world_rank % groupsize;
 
-    printf("World Rank: %d received message: %s\n", world_rank, message_buffer);
+    
+    MPI_Comm splitWorld;
+    MPI_Comm_split(MPI_COMM_WORLD, color, key, &splitWorld);
 
-    if (leader_comm != MPI_COMM_NULL) {
-        MPI_Comm_free(&leader_comm);
+    int split_rank, split_size;
+    MPI_Comm_rank(splitWorld, &split_rank);
+    MPI_Comm_size(splitWorld, &split_size);
+
+    
+    if (split_rank >= split_size) {
+        
+        MPI_Comm_free(&splitWorld);
+        MPI_Finalize();
+        return 0;
     }
-    MPI_Comm_free(&node_comm);
+
+    
+    int tag = 0;
+    MPI_Status status;
+    char seq[SEQ_SIZE] = "SampleSeqData"; 
+    char seqin[SEQ_SIZE];
+    memset(seqin, 0, SEQ_SIZE);
+
+    
+    if (split_rank == 0) {
+        
+        strcpy(seqin, seq);
+        for(int i = 1; i < split_size; i++) {
+            MPI_Send(seq, SEQ_SIZE, MPI_CHAR, i, tag, splitWorld);
+        }
+    } else {
+        
+        MPI_Recv(seqin, SEQ_SIZE, MPI_CHAR, 0, tag, splitWorld, &status);
+    }
+
+    
+    MPI_Bcast(seqin, SEQ_SIZE, MPI_CHAR, 0, splitWorld);
+
+    
+    printf("World Rank: %d, Split Rank: %d/%d, Received Seq: %s\n", 
+           world_rank, split_rank, split_size, seqin);
+
+    
+    MPI_Comm_free(&splitWorld);
     MPI_Finalize();
     return 0;
 }
