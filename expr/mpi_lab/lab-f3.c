@@ -386,7 +386,7 @@ int checkerboard_partition(int N, int P, int rank, double ***A_local_ptr, double
     
     for(int i = 1; i <= local_rows; i++) {
         for(int j = 1; j <= local_cols; j++) {
-            A_local[i][j] = (double)(start_row + i -1) * N + (start_col + j -1);
+            A_local[i][j] = (double)(start_row + i -1) * N + (double)(start_col + j -1);
         }
     }
 
@@ -510,22 +510,17 @@ void gather_and_print_checkerboard(int N, int P, int rank, double **A_local, dou
     
     int coords[2];
     MPI_Cart_coords(grid_comm, rank, 2, coords);
-    int pr = coords[0];
-    int pc = coords[1];
+    int pr_p = coords[0];
+    int pc_p = coords[1];
     int q = (int)sqrt(P);
 
     
+    double *A_sendbuf = (double *)malloc(local_rows * local_cols * sizeof(double));
     double *B_sendbuf = (double *)malloc(local_rows * local_cols * sizeof(double));
     for(int i = 0; i < local_rows; i++) {
         for(int j = 0; j < local_cols; j++) {
-            B_sendbuf[i*local_cols + j] = B_local[i+1][j+1];
-        }
-    }
-
-    double *A_sendbuf = (double *)malloc(local_rows * local_cols * sizeof(double));
-    for(int i = 0; i < local_rows; i++) {
-        for(int j = 0; j < local_cols; j++) {
             A_sendbuf[i*local_cols + j] = A_local[i+1][j+1];
+            B_sendbuf[i*local_cols + j] = B_local[i+1][j+1];
         }
     }
 
@@ -536,77 +531,79 @@ void gather_and_print_checkerboard(int N, int P, int rank, double **A_local, dou
         A_global = (double *)malloc(N * N * sizeof(double));
         B_global = (double *)malloc(N * N * sizeof(double));
         
-        for(int i = 0; i < N * N; i++) {
+        for(int i=0; i<N*N; i++) {
             A_global[i] = 0.0;
             B_global[i] = 0.0;
         }
     }
 
     
-    if(rank == 0) {
-        for(int i = 0; i < local_rows; i++) {
-            for(int j = 0; j < local_cols; j++) {
-                int global_i = pr * (N / q) + (pr < (N % q) ? pr : (N % q));
-                int global_j = pc * (N / q) + (pc < (N % q) ? pc : (N % q));
-                A_global[(start_row_ptr = pr * (N / q) + (pr < (N % q) ? pr : (N % q))) * N + (start_col_ptr = pc * (N / q) + (pc < (N % q) ? pc : (N % q)))] = A_sendbuf[i * local_cols + j];
-                B_global[(start_row_ptr) * N + (start_col_ptr)] = B_sendbuf[i * local_cols + j];
-            }
-        }
-    }
-
-    
-    for(int p = 0; p < P; p++) {
-        if(p == 0) {
-            continue; 
-        }
-        
-        int proc_coords[2];
-        MPI_Cart_coords(grid_comm, p, 2, proc_coords);
-        int pr_p = proc_coords[0];
-        int pc_p = proc_coords[1];
-
-        
-        int rows_p = N / q + (pr_p < (N % q) ? 1 : 0);
-        int cols_p = N / q + (pc_p < (N % q) ? 1 : 0);
+    if(rank == 0){
         int start_row_p = pr_p * (N / q) + (pr_p < (N % q) ? pr_p : (N % q));
         int start_col_p = pc_p * (N / q) + (pc_p < (N % q) ? pc_p : (N % q));
-
-        
-        double *A_sub = (double *)malloc(rows_p * cols_p * sizeof(double));
-        MPI_Recv(A_sub, rows_p * cols_p, MPI_DOUBLE, p, TAG_LEFT, grid_comm, MPI_STATUS_IGNORE);
-        
-        double *B_sub = (double *)malloc(rows_p * cols_p * sizeof(double));
-        MPI_Recv(B_sub, rows_p * cols_p, MPI_DOUBLE, p, TAG_RIGHT, grid_comm, MPI_STATUS_IGNORE);
-
-        
-        for(int i = 0; i < rows_p; i++) {
-            for(int j = 0; j < cols_p; j++) {
-                A_global[(start_row_p + i) * N + (start_col_p + j)] = A_sub[i * cols_p + j];
-                B_global[(start_row_p + i) * N + (start_col_p + j)] = B_sub[i * cols_p + j];
+        for(int i=0; i<local_rows; i++) {
+            for(int j=0; j<local_cols; j++) {
+                int global_i = start_row_p + i;
+                int global_j = start_col_p + j;
+                A_global[global_i * N + global_j] = A_sendbuf[i * local_cols + j];
+                B_global[global_i * N + global_j] = B_sendbuf[i * local_cols + j];
             }
         }
-
-        free(A_sub);
-        free(B_sub);
     }
 
     
-    if(rank == 0) {
+    if(rank == 0){
+        for(int p=1; p<P; p++) {
+            
+            int coords_p[2];
+            MPI_Cart_coords(grid_comm, p, 2, coords_p);
+            int pr_p_p = coords_p[0];
+            int pc_p_p = coords_p[1];
+
+            
+            int rows_p = N / q + (pr_p_p < (N % q) ? 1 : 0);
+            int cols_p = N / q + (pc_p_p < (N % q) ? 1 : 0);
+            int start_row_p = pr_p_p * (N / q) + (pr_p_p < (N % q) ? pr_p_p : (N % q));
+            int start_col_p = pc_p_p * (N / q) + (pc_p_p < (N % q) ? pc_p_p : (N % q));
+
+            
+            double *A_sub = (double *)malloc(rows_p * cols_p * sizeof(double));
+            MPI_Recv(A_sub, rows_p * cols_p, MPI_DOUBLE, p, TAG_LEFT, grid_comm, MPI_STATUS_IGNORE);
+
+            
+            double *B_sub = (double *)malloc(rows_p * cols_p * sizeof(double));
+            MPI_Recv(B_sub, rows_p * cols_p, MPI_DOUBLE, p, TAG_RIGHT, grid_comm, MPI_STATUS_IGNORE);
+
+            
+            for(int i=0; i<rows_p; i++) {
+                for(int j=0; j<cols_p; j++) {
+                    int global_i = start_row_p + i;
+                    int global_j = start_col_p + j;
+                    A_global[global_i * N + global_j] = A_sub[i * cols_p + j];
+                    B_global[global_i * N + global_j] = B_sub[i * cols_p + j];
+                }
+            }
+
+            free(A_sub);
+            free(B_sub);
+        }
+
+        
         printf("棋盘式划分结果示例:\n");
         printf("B[1][1] = %f\n", B_global[1*N +1]);
         printf("B[N-2][N-2] = %f\n", B_global[(N-2)*N + (N-2)]);
 
         printf("矩阵 A:\n");
-        for(int i = 0; i < N; i++) {
-            for(int j = 0; j < N; j++) {
+        for(int i=0; i<N; i++) {
+            for(int j=0; j<N; j++) {
                 printf("%f ", A_global[i*N + j]);
             }
             printf("\n");
         }
 
         printf("矩阵 B:\n");
-        for(int i = 0; i < N; i++) {
-            for(int j = 0; j < N; j++) {
+        for(int i=0; i<N; i++) {
+            for(int j=0; j<N; j++) {
                 printf("%f ", B_global[i*N + j]);
             }
             printf("\n");
@@ -616,8 +613,13 @@ void gather_and_print_checkerboard(int N, int P, int rank, double **A_local, dou
         free(A_global);
         free(B_global);
     }
+    else{
+        
+        MPI_Send(A_sendbuf, local_rows * local_cols, MPI_DOUBLE, 0, TAG_LEFT, grid_comm);
+        MPI_Send(B_sendbuf, local_rows * local_cols, MPI_DOUBLE, 0, TAG_RIGHT, grid_comm);
+    }
 
     
-    free(B_sendbuf);
     free(A_sendbuf);
+    free(B_sendbuf);
 }
