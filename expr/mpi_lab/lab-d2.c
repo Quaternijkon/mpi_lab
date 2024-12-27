@@ -109,11 +109,15 @@ int main(int argc, char *argv[]) {
     
     // 使用 MPI_Type_create_subarray 创建子矩阵数据类型
     MPI_Datatype submatrix_type;
-    int sizes[2] = {n, n};
-    int subsizes[2] = {block_size, block_size};
-    int starts[2] = {0, 0}; // 起始索引将通过 displacements 设置
-    MPI_Type_create_subarray(2, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &submatrix_type);
-    MPI_Type_commit(&submatrix_type);
+    int sizes_array[2] = {n, n};
+    int subsizes_array[2] = {block_size, block_size};
+    int starts_array[2] = {0, 0};
+    MPI_Type_create_subarray(2, sizes_array, subsizes_array, starts_array, MPI_ORDER_C, MPI_DOUBLE, &submatrix_type);
+    
+    // 创建一个调整过的类型，使其可以被 MPI_Scatterv 正确识别
+    MPI_Datatype resized_submatrix_type;
+    MPI_Type_create_resized(submatrix_type, 0, n * sizeof(double), &resized_submatrix_type);
+    MPI_Type_commit(&resized_submatrix_type);
     
     // 定义发送计数和偏移量
     int *sendcounts = NULL;
@@ -125,18 +129,13 @@ int main(int argc, char *argv[]) {
             sendcounts[i] = 1;
             int row = i / q;
             int col = i % q;
-            displs[i] = row * n * block_size + col * block_size;
+            displs[i] = row * n + col;
         }
     }
     
     // 分发 A 和 B
-    MPI_Datatype tmp_type;
-    MPI_Type_create_subarray(2, sizes, (int[]){block_size, block_size}, starts, MPI_ORDER_C, MPI_DOUBLE, &tmp_type);
-    MPI_Type_commit(&tmp_type);
-    
-    // 使用 MPI_Scatterv 分发 A 和 B
-    MPI_Scatterv(A, sendcounts, displs, submatrix_type, A_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Scatterv(B, sendcounts, displs, submatrix_type, B_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Scatterv(A, sendcounts, displs, resized_submatrix_type, A_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Scatterv(B, sendcounts, displs, resized_submatrix_type, B_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     
     if(rank == 0) {
         free(sendcounts);
@@ -170,18 +169,19 @@ int main(int argc, char *argv[]) {
         free(A_broadcast);
         
         // 将 B_block 向上移动一位（循环移位）
-        // 使用 MPI_Sendrecv_replace 实现循环移位
+        // 使用 MPI_Sendrecv_replace 在列通信器内循环移位
         int src, dest;
-        MPI_Cart_shift(grid_comm, 0, -1, &src, &dest);
-        MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE, dest, 0, src, 0, grid_comm, MPI_STATUS_IGNORE);
+        MPI_Cart_shift(col_comm, 0, -1, &src, &dest);
+        MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE, dest, 0, src, 0, col_comm, MPI_STATUS_IGNORE);
     }
     
-    // 使用 MPI_Gatherv 收集所有 C_block 到根进程
+    // 收集所有 C_block 到根进程
     double *C = NULL;
     if(rank == 0) {
         C = (double*)malloc(n * n * sizeof(double));
     }
     
+    // 重新定义 sendcounts 和 displs 用于 Gatherv
     if(rank == 0) {
         sendcounts = (int*)malloc(size * sizeof(int));
         displs = (int*)malloc(size * sizeof(int));
@@ -189,11 +189,11 @@ int main(int argc, char *argv[]) {
             sendcounts[i] = 1;
             int row = i / q;
             int col = i % q;
-            displs[i] = row * n * block_size + col * block_size;
+            displs[i] = row * n + col;
         }
     }
     
-    MPI_Gatherv(C_block, block_size * block_size, MPI_DOUBLE, C, sendcounts, displs, submatrix_type, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(C_block, block_size * block_size, MPI_DOUBLE, C, sendcounts, displs, resized_submatrix_type, 0, MPI_COMM_WORLD);
     
     if(rank == 0) {
         printf("Matrix C = A * B:\n");
@@ -209,7 +209,7 @@ int main(int argc, char *argv[]) {
     free(C_block);
     
     MPI_Type_free(&submatrix_type);
-    MPI_Type_free(&tmp_type);
+    MPI_Type_free(&resized_submatrix_type);
     MPI_Comm_free(&row_comm);
     MPI_Comm_free(&col_comm);
     MPI_Comm_free(&grid_comm);
