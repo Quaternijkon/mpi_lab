@@ -35,29 +35,16 @@ int main(int argc, char** argv) {
         int partner = rank ^ (1 << i);
         double recv_val;
 
-        if (rank < partner) {
-            
-            MPI_Send(&sum, 1, MPI_DOUBLE, partner, 0, MPI_COMM_WORLD);
-        } else {
-            
-            MPI_Recv(&recv_val, 1, MPI_DOUBLE, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            sum += recv_val;
-        }
-        MPI_Barrier(MPI_COMM_WORLD); 
+        
+        MPI_Sendrecv(&sum, 1, MPI_DOUBLE, partner, 0,
+                     &recv_val, 1, MPI_DOUBLE, partner, 0,
+                     MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+        sum += recv_val;
     }
 
     
-    for (i = 0; i < log2_size; i++) {
-        int partner = rank ^ (1 << i);
-        if (rank < partner) {
-            
-            MPI_Send(&sum, 1, MPI_DOUBLE, partner, 0, MPI_COMM_WORLD);
-        } else {
-            
-            MPI_Recv(&sum, 1, MPI_DOUBLE, partner, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        }
-        MPI_Barrier(MPI_COMM_WORLD); 
-    }
+    MPI_Bcast(&sum, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     
     printf("进程 %d 的全局总和为 %.2f\n", rank, sum);
