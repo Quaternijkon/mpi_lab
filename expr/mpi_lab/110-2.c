@@ -5,29 +5,32 @@
 #include <math.h>
 
 #ifndef N
-#define N 7
+#define N 50
 #endif
 
 #define INDEX(i, j) (((i)*N)+(j))
 
-void random_array(double *a, int num) {
-    for(int i = 0; i < num; i++) {
-        srand(time(NULL));
-        a[i] = rand() % 100;
+
+void fill_matrix(double *a, int num) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            
+            a[INDEX(i, j)] = i + j;  
+        }
     }
 }
 
 void comp(double *A, double *B, int a, int b) {
-    for(int i = 1; i <= a; i++) {
-        for(int j = 1; j <= b; j++) {
+    for (int i = 1; i <= a; i++) {
+        for (int j = 1; j <= b; j++) {
             B[INDEX(i, j)] = (A[INDEX(i-1, j)] + A[INDEX(i, j+1)] + A[INDEX(i+1, j)] + A[INDEX(i, j-1)]) / 4.0;
         }
     }
 }
 
 int check(double *B, double *C) {
-    for(int i = 1; i < N-1; i++) {
-        for(int j = 1; j < N-1; j++) {
+    for (int i = 1; i < N-1; i++) {
+        for (int j = 1; j < N-1; j++) {
             if (fabs(B[INDEX(i, j)] - C[INDEX(i, j)]) >= 1e-2) {
                 printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j)], C[INDEX(i, j)]);
                 return 0;
@@ -67,7 +70,7 @@ int main(int argc, char *argv[]) {
 
     
     if (id_procs == 0) {
-        random_array(A, N * N);
+        fill_matrix(A, N * N);
         comp(A, B2, N-2, N-2);
     }
 
@@ -78,8 +81,8 @@ int main(int argc, char *argv[]) {
     MPI_Type_commit(&SubMat);
 
     if (id_procs == 0) {
-        for(int i = 0; i < rows; i++) {
-            for(int j = 0; j < cols; j++) {
+        for (int i = 0; i < rows; i++) {
+            for (int j = 0; j < cols; j++) {
                 if (i == 0 && j == 0)
                     continue;
                 MPI_Send(A + i * a * N + b * j, 1, SubMat, j + cols * i, 0, MPI_COMM_WORLD);
