@@ -43,7 +43,7 @@ void multiply_add(double *A, double *B, double *C, int block_size) {
 
 int main(int argc, char *argv[]) {
     int rank, size;
-    int n = 8; // 矩阵大小，假设为 8x8，可根据需要调整
+    int n = 4; // 矩阵大小，假设为 8x8，可根据需要调整
     int sqrt_p;
     int block_size;
     
