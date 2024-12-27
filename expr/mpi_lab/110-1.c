@@ -4,26 +4,26 @@
 #include <time.h>
 #include <math.h>
 
-#define INDEX(i, j, N) (((i)*N)+(j))
+#define INDEX(i, j, N) (((i)*(N)) + (j)) // Ensure correct index calculation
 
 void random_array(double *a, int num) {
     srand(time(NULL)); // Seed the random number generator once
-    for(int i = 0; i < num; i++) {
+    for (int i = 0; i < num; i++) {
         a[i] = rand() % 100;
     }
 }
 
 void comp(double *A, double *B, int N) {
-    for(int i = 1; i < N-1; i++) {
-        for(int j = 1; j < N-1; j++) {
-            B[INDEX(i, j, N)] = (A[INDEX(i-1, j, N)] + A[INDEX(i, j+1, N)] + A[INDEX(i+1, j, N)] + A[INDEX(i, j-1, N)]) / 4.0;
+    for (int i = 1; i < N - 1; i++) {
+        for (int j = 1; j < N - 1; j++) {
+            B[INDEX(i, j, N)] = (A[INDEX(i - 1, j, N)] + A[INDEX(i, j + 1, N)] + A[INDEX(i + 1, j, N)] + A[INDEX(i, j - 1, N)]) / 4.0;
         }
     }
 }
 
 int check(double *B, double *C, int N) {
-    for(int i = 1; i < N-1; i++) {
-        for(int j = 1; j < N-1; j++) {
+    for (int i = 1; i < N - 1; i++) {
+        for (int j = 1; j < N - 1; j++) {
             if (fabs(B[INDEX(i, j, N)] - C[INDEX(i, j, N)]) >= 1e-2) {
                 printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j, N)], C[INDEX(i, j, N)]);
                 return 0;
@@ -34,8 +34,8 @@ int check(double *B, double *C, int N) {
 }
 
 void print_matrix(double *matrix, int N) {
-    for(int i = 0; i < N; i++) {
-        for(int j = 0; j < N; j++) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
             printf("%6.2f ", matrix[INDEX(i, j, N)]);
         }
         printf("\n");
@@ -43,15 +43,13 @@ void print_matrix(double *matrix, int N) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        printf("Using default matrix size N = 50\n");
-    }
+    // Get matrix size N from command line argument or default to 50
     int N = (argc > 1) ? atoi(argv[1]) : 50;
-
+    
     double *A, *B, *B2;
-    A = (double*)malloc(N * N * sizeof(double));
-    B = (double*)malloc(N * N * sizeof(double));
-    B2 = (double*)malloc(N * N * sizeof(double));
+    A = (double *)malloc(N * N * sizeof(double));
+    B = (double *)malloc(N * N * sizeof(double));
+    B2 = (double *)malloc(N * N * sizeof(double));
 
     int id_procs, num_procs, num_1;
     MPI_Status status;
@@ -99,7 +97,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // Gather
+    // Gather the results
     for (int i = 0; i < N - 2; i++) {
         if (id_procs == num_1) {
             int src = i % num_1;
@@ -111,6 +109,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Output results in process num_1
     if (id_procs == num_1) {
         // Print matrices for verification
         printf("Matrix A:\n");
