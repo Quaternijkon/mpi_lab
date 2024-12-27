@@ -18,7 +18,6 @@ void random_array(double *a, int num) {
         }
     }
 
-    
     printf("Matrix A (initialized with indices):\n");
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
@@ -30,13 +29,16 @@ void random_array(double *a, int num) {
 
 
 void comp(double *A, double *B, int num) {
-    for (int i = 1; i < N-1; i++) {
-        for (int j = 1; j < N-1; j++) {
-            int up = (i - 1 + N) % N;  
-            int down = (i + 1) % N;    
-            int left = (j - 1 + N) % N;  
-            int right = (j + 1) % N;     
+    
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            
+            int up = (i - 1 + N) % N;     
+            int down = (i + 1) % N;       
+            int left = (j - 1 + N) % N;   
+            int right = (j + 1) % N;      
 
+            
             B[INDEX(i, j)] = (A[INDEX(up, j)] + A[INDEX(i, right)] + A[INDEX(down, j)] + A[INDEX(i, left)]) / 4.0;
         }
     }
@@ -44,8 +46,8 @@ void comp(double *A, double *B, int num) {
 
 
 int check(double *B, double *C) {
-    for(int i = 1; i < N-1; i++) {
-        for(int j = 1; j < N-1; j++) {
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
             if (fabs(B[INDEX(i, j)] - C[INDEX(i, j)]) >= 1e-2) {
                 printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j)], C[INDEX(i, j)]);
                 return 0;
@@ -67,9 +69,9 @@ void print_matrix(double *mat) {
 
 int main(int argc, char *argv[]) {
     double *A, *B, *B2;
-    A = (double*)malloc(N*N*sizeof(double));
-    B = (double*)malloc(N*N*sizeof(double));
-    B2 = (double*)malloc(N*N*sizeof(double));
+    A = (double*)malloc(N * N * sizeof(double));
+    B = (double*)malloc(N * N * sizeof(double));
+    B2 = (double*)malloc(N * N * sizeof(double));
 
     int id_procs, num_procs, num_1;
     MPI_Status status;
@@ -81,60 +83,61 @@ int main(int argc, char *argv[]) {
 
     
     if (id_procs == num_1) {
-        random_array(A, N*N);
-        comp(A, B2, N*N);
+        random_array(A, N * N);
+        comp(A, B2, N * N);
     }
 
     MPI_Barrier(MPI_COMM_WORLD);
 
-    
     int ctn = 0;
-    for(int i = 0; i < N-2; i++) {
+    
+    for (int i = 0; i < N - 2; i++) {
         if (id_procs == num_1) {
             int dest = i % num_1;
             int tag = i / num_1;
-            MPI_Send(&A[INDEX(i, 0)], N*3, MPI_DOUBLE, dest, tag, MPI_COMM_WORLD);
+            MPI_Send(&A[INDEX(i, 0)], N * 3, MPI_DOUBLE, dest, tag, MPI_COMM_WORLD);
         }
     }
 
-    for(int i = 0; i < (N-2)/num_1; i++) {
+    for (int i = 0; i < (N - 2) / num_1; i++) {
         if (id_procs != num_1) {
-            MPI_Recv(&A[INDEX(3*ctn, 0)], 3*N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
+            MPI_Recv(&A[INDEX(3 * ctn, 0)], 3 * N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
             ctn++;
         }
     }
-    if (id_procs < (N-2) % num_1) {
-        MPI_Recv(&A[INDEX(ctn*3, 0)], 3*N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
+
+    if (id_procs < (N - 2) % num_1) {
+        MPI_Recv(&A[INDEX(ctn * 3, 0)], 3 * N, MPI_DOUBLE, num_1, ctn, MPI_COMM_WORLD, &status);
         ctn++;
     }
 
     
     if (id_procs != num_1) {
-        for(int i = 1; i <= ctn; i++) {
-            for(int j = 1; j < N-1; j++) {
-                B[INDEX(i, j)] = (A[INDEX(i-1, j)] + A[INDEX(i, j+1)] + A[INDEX(i+1, j)] + A[INDEX(i, j-1)]) / 4.0;
+        for (int i = 0; i <= ctn; i++) {
+            for (int j = 0; j < N; j++) {
+                
+                B[INDEX(i, j)] = (A[INDEX(i - 1 + N, j)] + A[INDEX(i, j + 1)] + A[INDEX(i + 1, j)] + A[INDEX(i, j - 1 + N)]) / 4.0;
             }
         }
     }
 
     
-    for(int i = 0; i < N-2; i++) {
+    for (int i = 0; i < N - 2; i++) {
         if (id_procs == num_1) {
             int src = i % num_1;
-            MPI_Recv(&B[INDEX(i+1, 1)], N-2, MPI_DOUBLE, src, i/num_1+N, MPI_COMM_WORLD, &status);
-        }
-        else {
-            for(int j = 0; j < ctn; j++)
-                MPI_Send(&B[INDEX(j+1, 1)], N-2, MPI_DOUBLE, num_1, j+N, MPI_COMM_WORLD);
+            MPI_Recv(&B[INDEX(i + 1, 1)], N - 2, MPI_DOUBLE, src, i / num_1 + N, MPI_COMM_WORLD, &status);
+        } else {
+            for (int j = 0; j < ctn; j++)
+                MPI_Send(&B[INDEX(j + 1, 1)], N - 2, MPI_DOUBLE, num_1, j + N, MPI_COMM_WORLD);
         }
     }
 
     
     if (id_procs == num_1) {
-        if(check(B, B2)) {
-            printf("Done.No Error\n");
+        if (check(B, B2)) {
+            printf("Done. No Error\n");
         } else {
-            printf("Error Occured!\n");
+            printf("Error Occurred!\n");
         }
 
         
