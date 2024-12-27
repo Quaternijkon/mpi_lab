@@ -3,111 +3,167 @@
 #include <stdlib.h>
 #include <math.h>
 
-#define N 1024 
+
+void initialize_matrices(double *A, double *B, int n, int block_size, int rank, int size) {
+    for(int i = 0; i < block_size * block_size; i++) {
+        A[i] = 1.0; 
+        B[i] = 1.0;
+    }
+}
+
+
+void print_matrix(double *matrix, int n) {
+    for(int i = 0; i < n; i++) {
+        for(int j = 0; j < n; j++) {
+            printf("%lf ", matrix[i * n + j]);
+        }
+        printf("\n");
+    }
+}
+
+
+void multiply_add(double *A, double *B, double *C, int block_size) {
+    for(int i = 0; i < block_size; i++) {
+        for(int j = 0; j < block_size; j++) {
+            for(int k = 0; k < block_size; k++) {
+                C[i * block_size + j] += A[i * block_size + k] * B[k * block_size + j];
+            }
+        }
+    }
+}
 
 int main(int argc, char *argv[]) {
     int rank, size;
-    int dims[2], periods[2] = {1, 1}; 
-    int coords[2];
-    MPI_Comm grid_comm, row_comm, col_comm;
+    int n = 8; 
     int sqrt_p;
-    int i, j, k;
-
+    int block_size;
+    
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-
+    
     
     sqrt_p = (int)sqrt((double)size);
-    if (sqrt_p * sqrt_p != size) {
-        if (rank == 0) {
-            printf("Number of processes must be a perfect square.\n");
+    if(sqrt_p * sqrt_p != size) {
+        if(rank == 0) {
+            printf("进程数必须为完全平方数。\n");
         }
-        MPI_Abort(MPI_COMM_WORLD, -1);
+        MPI_Finalize();
+        return -1;
     }
-
     
-    dims[0] = dims[1] = sqrt_p;
-
     
+    if(n % sqrt_p != 0) {
+        if(rank == 0) {
+            printf("矩阵大小必须能被 sqrt(p) 整除。\n");
+        }
+        MPI_Finalize();
+        return -1;
+    }
+    
+    block_size = n / sqrt_p;
+    
+    
+    MPI_Comm grid_comm;
+    int dims[2] = {sqrt_p, sqrt_p};
+    int periods[2] = {1, 1}; 
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &grid_comm);
+    
+    int coords[2];
     MPI_Cart_coords(grid_comm, rank, 2, coords);
     int my_row = coords[0];
     int my_col = coords[1];
-
     
+    
+    MPI_Comm row_comm, col_comm;
     MPI_Comm_split(grid_comm, my_row, my_col, &row_comm);
     MPI_Comm_split(grid_comm, my_col, my_row, &col_comm);
-
     
-    int block_size = N / sqrt_p;
-
     
     double *A_block = (double *)malloc(block_size * block_size * sizeof(double));
     double *B_block = (double *)malloc(block_size * block_size * sizeof(double));
-    double *C_block = (double *)calloc(block_size * block_size, sizeof(double)); 
+    double *C_block = (double *)malloc(block_size * block_size * sizeof(double));
     double *A_temp = (double *)malloc(block_size * block_size * sizeof(double));
-
     
-    for (i = 0; i < block_size * block_size; i++) {
-        A_block[i] = 1.0; 
-        B_block[i] = 1.0; 
+    
+    initialize_matrices(A_block, B_block, n, block_size, rank, size);
+    
+    
+    for(int i = 0; i < block_size * block_size; i++) {
+        C_block[i] = 0.0;
     }
-
     
-    for (k = 0; k < sqrt_p; k++) {
-        int root = (my_row + k) % sqrt_p; 
-
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+    
+    for(int step = 0; step < sqrt_p; step++) {
+        int root = (my_row + step) % sqrt_p;
         
-        if (root == my_col) {
-            for (i = 0; i < block_size * block_size; i++) {
-                A_temp[i] = A_block[i]; 
+        if(root == my_col) {
+            
+            MPI_Bcast(A_block, block_size * block_size, MPI_DOUBLE, root, row_comm);
+            
+            for(int i = 0; i < block_size * block_size; i++) {
+                A_temp[i] = A_block[i];
             }
+        } else {
+            
+            MPI_Bcast(A_temp, block_size * block_size, MPI_DOUBLE, root, row_comm);
         }
-        MPI_Bcast(A_temp, block_size * block_size, MPI_DOUBLE, root, row_comm);
-
         
-        for (i = 0; i < block_size; i++) {
-            for (j = 0; j < block_size; j++) {
-                double sum = 0.0;
-                for (int l = 0; l < block_size; l++) {
-                    sum += A_temp[i * block_size + l] * B_block[l * block_size + j];
-                }
-                C_block[i * block_size + j] += sum;
-            }
+        
+        multiply_add(A_temp, B_block, C_block, block_size);
+        
+        
+        int source, dest;
+        MPI_Cart_shift(grid_comm, 1, -1, &source, &dest);
+        MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE, dest, 0, source, 0, grid_comm, MPI_STATUS_IGNORE);
+    }
+    
+    
+    double *C = NULL;
+    if(rank == 0) {
+        C = (double *)malloc(n * n * sizeof(double));
+    }
+    
+    
+    MPI_Datatype block_type, block_type_resized;
+    MPI_Type_vector(block_size, block_size, sqrt_p * block_size, MPI_DOUBLE, &block_type);
+    MPI_Type_create_resized(block_type, 0, sizeof(double), &block_type_resized);
+    MPI_Type_commit(&block_type_resized);
+    
+    int *displs = NULL;
+    int *recvcounts = NULL;
+    if(rank == 0) {
+        displs = (int *)malloc(size * sizeof(int));
+        recvcounts = (int *)malloc(size * sizeof(int));
+        for(int i = 0; i < size; i++) {
+            displs[i] = i;
+            recvcounts[i] = 1;
         }
-
-        
-        int src, dest;
-        MPI_Cart_shift(grid_comm, 0, -1, &src, &dest);
-        MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE,
-                             dest, 0, src, 0, grid_comm, MPI_STATUS_IGNORE);
     }
-
     
-    double *C_result = NULL;
-    if (rank == 0) {
-        C_result = (double *)malloc(N * N * sizeof(double));
-    }
-    MPI_Gather(C_block, block_size * block_size, MPI_DOUBLE,
-               C_result, block_size * block_size, MPI_DOUBLE, 0, grid_comm);
-
+    MPI_Gather(C_block, block_size * block_size, MPI_DOUBLE, C, block_size * block_size, MPI_DOUBLE, 0, grid_comm);
     
-    if (rank == 0) {
-        printf("C_result[0][0] = %f\n", C_result[0]);
-        free(C_result);
+    
+    if(rank == 0) {
+        printf("结果矩阵 C:\n");
+        print_matrix(C, n);
+        free(C);
+        free(displs);
+        free(recvcounts);
     }
-
+    
     
     free(A_block);
     free(B_block);
     free(C_block);
     free(A_temp);
-
-    MPI_Comm_free(&grid_comm);
+    MPI_Type_free(&block_type_resized);
     MPI_Comm_free(&row_comm);
     MPI_Comm_free(&col_comm);
-
+    MPI_Comm_free(&grid_comm);
+    
     MPI_Finalize();
     return 0;
 }
