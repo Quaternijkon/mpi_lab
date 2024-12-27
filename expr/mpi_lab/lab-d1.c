@@ -6,13 +6,11 @@
 #define N 4 
 #define ROOT 0
 
-
 void initialize_matrix(double* matrix, int n) {
     for (int i = 0; i < n * n; i++) {
         matrix[i] = i + 1; 
     }
 }
-
 
 void print_matrix(double* matrix, int n) {
     for (int i = 0; i < n; i++) {
@@ -22,7 +20,6 @@ void print_matrix(double* matrix, int n) {
         printf("\n");
     }
 }
-
 
 int main(int argc, char** argv) {
     int rank, size;
@@ -34,7 +31,6 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
-    
     grid_size = (int)sqrt(size);
     if (grid_size * grid_size != size) {
         if (rank == ROOT) {
@@ -44,7 +40,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    
     block_size = N / grid_size;
     if (N % grid_size != 0) {
         if (rank == ROOT) {
@@ -54,22 +49,22 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    
-    MPI_Dims_create(size, 2, (int[]){grid_size, grid_size});
-    MPI_Cart_create(MPI_COMM_WORLD, 2, (int[]){grid_size, grid_size}, periods, 1, &grid_comm);
+    // 修正：使用可修改的数组 dims
+    int dims[2] = {grid_size, grid_size};
+    MPI_Dims_create(size, 2, dims);
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &grid_comm);
     MPI_Cart_coords(grid_comm, rank, 2, coords);
 
-    
     MPI_Comm_split(grid_comm, coords[0], coords[1], &row_comm);
     MPI_Comm_split(grid_comm, coords[1], coords[0], &col_comm);
 
-    
-    double* A = (rank == ROOT) ? malloc(N * N * sizeof(double)) : NULL;
-    double* B = (rank == ROOT) ? malloc(N * N * sizeof(double)) : NULL;
-    double* C = (rank == ROOT) ? malloc(N * N * sizeof(double)) : NULL;
-
-    
+    double* A = NULL;
+    double* B = NULL;
+    double* C = NULL;
     if (rank == ROOT) {
+        A = malloc(N * N * sizeof(double));
+        B = malloc(N * N * sizeof(double));
+        C = malloc(N * N * sizeof(double));
         initialize_matrix(A, N);
         initialize_matrix(B, N);
         for (int i = 0; i < N * N; i++) {
@@ -81,7 +76,6 @@ int main(int argc, char** argv) {
         print_matrix(B, N);
     }
 
-    
     double* local_A = malloc(block_size * block_size * sizeof(double));
     double* local_B = malloc(block_size * block_size * sizeof(double));
     double* local_C = malloc(block_size * block_size * sizeof(double));
@@ -89,14 +83,11 @@ int main(int argc, char** argv) {
         local_C[i] = 0.0;
     }
 
-    
     double* temp_A = malloc(block_size * block_size * sizeof(double));
     MPI_Scatter(A, block_size * block_size, MPI_DOUBLE, local_A, block_size * block_size, MPI_DOUBLE, ROOT, grid_comm);
     MPI_Scatter(B, block_size * block_size, MPI_DOUBLE, local_B, block_size * block_size, MPI_DOUBLE, ROOT, grid_comm);
 
-    
     for (int step = 0; step < grid_size; step++) {
-        
         int pivot = (coords[0] + step) % grid_size;
         if (coords[1] == pivot) {
             for (int i = 0; i < block_size * block_size; i++) {
@@ -104,10 +95,8 @@ int main(int argc, char** argv) {
             }
         }
 
-        
         MPI_Bcast(temp_A, block_size * block_size, MPI_DOUBLE, pivot, row_comm);
 
-        
         for (int i = 0; i < block_size; i++) {
             for (int j = 0; j < block_size; j++) {
                 for (int k = 0; k < block_size; k++) {
@@ -116,23 +105,19 @@ int main(int argc, char** argv) {
             }
         }
 
-        
         MPI_Sendrecv_replace(local_B, block_size * block_size, MPI_DOUBLE,
                              (coords[0] + 1) % grid_size, 0,
                              (coords[0] - 1 + grid_size) % grid_size, 0,
                              col_comm, MPI_STATUS_IGNORE);
     }
 
-    
     MPI_Gather(local_C, block_size * block_size, MPI_DOUBLE, C, block_size * block_size, MPI_DOUBLE, ROOT, grid_comm);
 
-    
     if (rank == ROOT) {
         printf("结果矩阵 C:\n");
         print_matrix(C, N);
     }
 
-    
     if (rank == ROOT) {
         free(A);
         free(B);
