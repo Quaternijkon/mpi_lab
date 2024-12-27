@@ -39,8 +39,8 @@ void comp(double *A, double *B, int num) {
 
 
 int check(double *B, double *C) {
-    for(int i = 1; i < N-1; i++) {
-        for(int j = 1; j < N-1; j++) {
+    for(int i = 0; i < N; i++) {
+        for(int j = 0; j < N; j++) {
             if (fabs(B[INDEX(i, j)] - C[INDEX(i, j)]) >= 1e-2) {
                 printf("B[%d,%d] = %lf not %lf!\n", i, j, B[INDEX(i, j)], C[INDEX(i, j)]);
                 return 0;
