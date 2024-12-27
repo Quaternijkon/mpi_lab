@@ -3,17 +3,17 @@
 #include <stdlib.h>
 #include <math.h>
 
-
+// 宏定义，用于索引子矩阵
 #define IDX(i, j, n) ((i)*(n) + (j))
 
-
+// 初始化矩阵为随机数
 void initialize_matrix(double *mat, int n) {
     for(int i = 0; i < n*n; i++) {
-        mat[i] = rand() % 10; 
+        mat[i] = rand() % 10; // 随机数 0-9
     }
 }
 
-
+// 打印矩阵（用于调试）
 void print_matrix(double *mat, int n) {
     for(int i = 0; i < n; i++) {
         for(int j = 0; j < n; j++) {
@@ -23,7 +23,7 @@ void print_matrix(double *mat, int n) {
     }
 }
 
-
+// 矩阵相乘加运算：C += A * B
 void matmul_add(double *A, double *B, double *C, int n) {
     for(int i = 0; i < n; i++) {
         for(int k = 0; k < n; k++) {
@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     
-    
+    // 检查 p 是否为完全平方数
     int q = (int)sqrt((double)size);
     if(q * q != size) {
         if(rank == 0) {
@@ -51,12 +51,9 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     
-    
-    int n = 4; 
-    if(argc > 1) {
-        n = atoi(argv[1]);
-    }
-    
+    // 固定矩阵大小 n x n
+    int n = 4; // 固定为4
+    // 检查 n 能否被 q 整除
     if(n % q != 0) {
         if(rank == 0) {
             printf("矩阵大小 n 必须能被 sqrt(p) 整除。\n");
@@ -67,9 +64,9 @@ int main(int argc, char *argv[]) {
     
     int block_size = n / q;
     
-    
+    // 创建二维网格通信器
     int dims[2] = {q, q};
-    int periods[2] = {1, 1}; 
+    int periods[2] = {1, 1}; // 周期性，以便循环移动
     MPI_Comm grid_comm;
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &grid_comm);
     
@@ -78,25 +75,25 @@ int main(int argc, char *argv[]) {
     int my_row = coords[0];
     int my_col = coords[1];
     
-    
+    // 创建行通信器
     MPI_Comm row_comm;
     MPI_Comm_split(grid_comm, my_row, my_col, &row_comm);
     
-    
+    // 创建列通信器
     MPI_Comm col_comm;
     MPI_Comm_split(grid_comm, my_col, my_row, &col_comm);
     
-    
+    // 分配内存给子矩阵
     double *A_block = (double*)malloc(block_size * block_size * sizeof(double));
     double *B_block = (double*)malloc(block_size * block_size * sizeof(double));
     double *C_block = (double*)malloc(block_size * block_size * sizeof(double));
     
-    
+    // 初始化 C_block 为 0
     for(int i = 0; i < block_size * block_size; i++) {
         C_block[i] = 0.0;
     }
     
-    
+    // 仅根进程初始化整个矩阵
     double *A = NULL;
     double *B = NULL;
     if(rank == 0) {
@@ -110,22 +107,15 @@ int main(int argc, char *argv[]) {
         print_matrix(B, n);
     }
     
+    // 使用 MPI_Type_create_subarray 创建子矩阵数据类型
+    MPI_Datatype submatrix_type;
+    int sizes[2] = {n, n};
+    int subsizes[2] = {block_size, block_size};
+    int starts[2] = {0, 0}; // 起始索引将通过 displacements 设置
+    MPI_Type_create_subarray(2, sizes, subsizes, starts, MPI_ORDER_C, MPI_DOUBLE, &submatrix_type);
+    MPI_Type_commit(&submatrix_type);
     
-    MPI_Datatype block_type;
-    MPI_Type_vector(block_size, block_size, n, MPI_DOUBLE, &block_type);
-    MPI_Type_create_resized(block_type, 0, block_size * sizeof(double), &block_type);
-    MPI_Type_commit(&block_type);
-    
-    
-    double *A_sub = (double*)malloc(block_size * block_size * sizeof(double));
-    double *B_sub = (double*)malloc(block_size * block_size * sizeof(double));
-    
-    if(rank == 0) {
-        
-        
-    }
-    
-    
+    // 定义发送计数和偏移量
     int *sendcounts = NULL;
     int *displs = NULL;
     if(rank == 0) {
@@ -139,54 +129,58 @@ int main(int argc, char *argv[]) {
         }
     }
     
+    // 分发 A 和 B
+    MPI_Datatype tmp_type;
+    MPI_Type_create_subarray(2, sizes, (int[]){block_size, block_size}, starts, MPI_ORDER_C, MPI_DOUBLE, &tmp_type);
+    MPI_Type_commit(&tmp_type);
     
-    MPI_Scatterv(A, sendcounts, displs, block_type, A_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    MPI_Scatterv(B, sendcounts, displs, block_type, B_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    // 使用 MPI_Scatterv 分发 A 和 B
+    MPI_Scatterv(A, sendcounts, displs, submatrix_type, A_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Scatterv(B, sendcounts, displs, submatrix_type, B_block, block_size * block_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     
     if(rank == 0) {
         free(sendcounts);
         free(displs);
     }
     
-    
+    // 释放全局矩阵
     if(rank == 0) {
         free(A);
         free(B);
     }
     
-    
+    // Fox 算法的主要循环
     for(int stage = 0; stage < q; stage++) {
         int root = (my_row + stage) % q;
         double *A_broadcast = (double*)malloc(block_size * block_size * sizeof(double));
         
         if(root == my_col) {
-            
+            // 当前处理器是广播的根，复制 A_block 到 A_broadcast
             for(int i = 0; i < block_size * block_size; i++) {
                 A_broadcast[i] = A_block[i];
             }
         }
         
-        
+        // 广播 A_broadcast 到同一行的所有处理器
         MPI_Bcast(A_broadcast, block_size * block_size, MPI_DOUBLE, root, row_comm);
         
-        
+        // 执行 C_block += A_broadcast * B_block
         matmul_add(A_broadcast, B_block, C_block, block_size);
         
         free(A_broadcast);
         
-        
-        
+        // 将 B_block 向上移动一位（循环移位）
+        // 使用 MPI_Sendrecv_replace 实现循环移位
         int src, dest;
         MPI_Cart_shift(grid_comm, 0, -1, &src, &dest);
         MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE, dest, 0, src, 0, grid_comm, MPI_STATUS_IGNORE);
     }
     
-    
+    // 使用 MPI_Gatherv 收集所有 C_block 到根进程
     double *C = NULL;
     if(rank == 0) {
         C = (double*)malloc(n * n * sizeof(double));
     }
-    
     
     if(rank == 0) {
         sendcounts = (int*)malloc(size * sizeof(int));
@@ -199,10 +193,7 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    
-    
-    
-    MPI_Gatherv(C_block, block_size * block_size, MPI_DOUBLE, C, sendcounts, displs, block_type, 0, MPI_COMM_WORLD);
+    MPI_Gatherv(C_block, block_size * block_size, MPI_DOUBLE, C, sendcounts, displs, submatrix_type, 0, MPI_COMM_WORLD);
     
     if(rank == 0) {
         printf("Matrix C = A * B:\n");
@@ -212,14 +203,13 @@ int main(int argc, char *argv[]) {
         free(displs);
     }
     
-    
+    // 释放资源
     free(A_block);
     free(B_block);
     free(C_block);
-    free(A_sub);
-    free(B_sub);
     
-    MPI_Type_free(&block_type);
+    MPI_Type_free(&submatrix_type);
+    MPI_Type_free(&tmp_type);
     MPI_Comm_free(&row_comm);
     MPI_Comm_free(&col_comm);
     MPI_Comm_free(&grid_comm);
