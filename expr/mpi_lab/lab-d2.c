@@ -70,18 +70,19 @@ int main(int argc, char *argv[]) {
     MPI_Comm grid_comm;
     MPI_Cart_create(MPI_COMM_WORLD, 2, dims, periods, 1, &grid_comm);
     
+    // 获取当前进程在网格中的坐标
     int coords[2];
     MPI_Cart_coords(grid_comm, rank, 2, coords);
     int my_row = coords[0];
     int my_col = coords[1];
     
-    // 创建行通信器
-    MPI_Comm row_comm;
-    MPI_Comm_split(grid_comm, my_row, my_col, &row_comm);
+    // 创建行通信器和列通信器，使用 MPI_Cart_sub
+    MPI_Comm row_comm, col_comm;
+    int remain_dims_row[2] = {0, 1}; // 保留列，变化行
+    MPI_Cart_sub(grid_comm, remain_dims_row, &row_comm);
     
-    // 创建列通信器
-    MPI_Comm col_comm;
-    MPI_Comm_split(grid_comm, my_col, my_row, &col_comm);
+    int remain_dims_col[2] = {1, 0}; // 保留行，变化列
+    MPI_Cart_sub(grid_comm, remain_dims_col, &col_comm);
     
     // 分配内存给子矩阵
     double *A_block = (double*)malloc(block_size * block_size * sizeof(double));
@@ -169,7 +170,7 @@ int main(int argc, char *argv[]) {
         free(A_broadcast);
         
         // 将 B_block 向上移动一位（循环移位）
-        // 使用 MPI_Sendrecv_replace 在列通信器内循环移位
+        // 使用 MPI_Cart_shift 在列通信器内循环移位
         int src, dest;
         MPI_Cart_shift(col_comm, 0, -1, &src, &dest);
         MPI_Sendrecv_replace(B_block, block_size * block_size, MPI_DOUBLE, dest, 0, src, 0, col_comm, MPI_STATUS_IGNORE);
