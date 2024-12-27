@@ -625,14 +625,3 @@ void gather_and_print_checkerboard(int N, int P, int rank, double **A_local, dou
     free(B_sendbuf);
     free(A_sendbuf);
 }
-
-/**
- * 初始化棋盘式划分的 A_local
- */
-void initialize_A_local_checkerboard(int local_rows, int local_cols, int start_row, int start_col, double **A_local, int N) {
-    for(int i = 1; i <= local_rows; i++) {
-        for(int j = 1; j <= local_cols; j++) {
-            A_local[i][j] = (double)(start_row + i -1) * N + (start_col + j -1);
-        }
-    }
-}
