@@ -195,8 +195,15 @@ int main(int argc, char **argv)
     MPI_Scatterv(pB, sendcounts, displs, type, local_pB,
                  local_matrix_size * local_matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
+    /* 添加计时功能开始 */
+    MPI_Barrier(MPI_COMM_WORLD); 
+    double start_time = MPI_Wtime(); 
     /* 调用Fox算法进行矩阵乘法 */
     FoxAlgorithm(local_pA, local_pB, local_pC, local_matrix_size, &grid);
+    MPI_Barrier(MPI_COMM_WORLD); 
+    double end_time = MPI_Wtime(); 
+    double elapsed_time = end_time - start_time; 
+    /* 添加计时功能结束 */
 
     /* 收集矩阵C */
     MPI_Gatherv(local_pC, local_matrix_size * local_matrix_size, MPI_DOUBLE, pC, sendcounts, displs, type, 0, MPI_COMM_WORLD);
@@ -206,6 +213,8 @@ int main(int argc, char **argv)
         printf("Matrix multiplication completed\n\n");
         printf("Matrix C (result of A * B):\n");
         matrix_print(pC, matrix_size);
+        printf("\n");
+        printf("计算用时: %f 秒\n", elapsed_time); 
     }
 
     /* 清理内存 */

@@ -1,57 +1,79 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
+#define ROOT 0
+#define MESSAGE "Hello from root!"
+#define SEQ_SIZE 16  
 
 int main(int argc, char *argv[]) {
     MPI_Init(&argc, &argv);
 
-    MPI_Comm world_comm = MPI_COMM_WORLD;
     int world_rank, world_size;
-    MPI_Comm_rank(world_comm, &world_rank);
-    MPI_Comm_size(world_comm, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    MPI_Comm node_comm;
-    MPI_Comm_split_type(world_comm, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &node_comm);
-
-    int node_rank, node_size;
-    MPI_Comm_rank(node_comm, &node_rank);
-    MPI_Comm_size(node_comm, &node_size);
-
-    char processor_name[MPI_MAX_PROCESSOR_NAME];
-    int name_len;
-    MPI_Get_processor_name(processor_name, &name_len);
-
-    printf("全局排名: %d, 节点内排名: %d/%d, 节点名称: %s\n", 
-           world_rank, node_rank, node_size, processor_name);
-
-    MPI_Comm node_roots_comm;
-    int color = (node_rank == 0) ? 0 : MPI_UNDEFINED;
-    MPI_Comm_split(world_comm, color, world_rank, &node_roots_comm);
-
-    char message[256];
-    if (node_rank == 0) {
-        if (world_rank == 0) {
-            strcpy(message, "Hello from the global root process!");
+    
+    int groupsize = 4; 
+    if (argc > 1) {
+        groupsize = atoi(argv[1]);
+        if (groupsize <= 0) {
+            if (world_rank == ROOT) {
+                fprintf(stderr, "Invalid groupsize. It must be a positive integer.\n");
+            }
+            MPI_Abort(MPI_COMM_WORLD, 1);
         }
     }
 
-    if (color == 0) {
-        MPI_Bcast(message, sizeof(message), MPI_CHAR, 
-                  (world_rank == 0) ? 0 : MPI_UNDEFINED, node_roots_comm);
+    
+    int color = world_rank / groupsize;
+    int key = world_rank % groupsize;
+
+    
+    MPI_Comm splitWorld;
+    MPI_Comm_split(MPI_COMM_WORLD, color, key, &splitWorld);
+
+    int split_rank, split_size;
+    MPI_Comm_rank(splitWorld, &split_rank);
+    MPI_Comm_size(splitWorld, &split_size);
+
+    
+    if (split_rank >= split_size) {
+        
+        MPI_Comm_free(&splitWorld);
+        MPI_Finalize();
+        return 0;
     }
 
-    MPI_Barrier(world_comm);
+    
+    int tag = 0;
+    MPI_Status status;
+    char seq[SEQ_SIZE] = "SampleSeqData"; 
+    char seqin[SEQ_SIZE];
+    memset(seqin, 0, SEQ_SIZE);
 
-    MPI_Bcast(message, sizeof(message), MPI_CHAR, 0, node_comm);
-
-    printf("全局排名: %d, 节点内排名: %d/%d, 接收到的消息: %s\n", 
-           world_rank, node_rank, node_size, message);
-
-    if (color == 0) {
-        MPI_Comm_free(&node_roots_comm);
+    
+    if (split_rank == 0) {
+        
+        strcpy(seqin, seq);
+        for(int i = 1; i < split_size; i++) {
+            MPI_Send(seq, SEQ_SIZE, MPI_CHAR, i, tag, splitWorld);
+        }
+    } else {
+        
+        MPI_Recv(seqin, SEQ_SIZE, MPI_CHAR, 0, tag, splitWorld, &status);
     }
-    MPI_Comm_free(&node_comm);
 
+    
+    MPI_Bcast(seqin, SEQ_SIZE, MPI_CHAR, 0, splitWorld);
+
+    
+    printf("全局排名: %d, 分组排名: %d/%d, 收到信息: %s\n", 
+           world_rank, split_rank, split_size, seqin);
+
+    
+    MPI_Comm_free(&splitWorld);
     MPI_Finalize();
     return 0;
 }
