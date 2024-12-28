@@ -101,12 +101,22 @@ int main(int argc, char *argv[])
         double *full_B2 = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(full_A, N, N);
         // 计算全局B2用于验证
-        // 这里为了简化，直接调用comp函数在全局矩阵上计算
+        // 这里为了简化，直接调用 comp 函数在全局矩阵上计算
         // 需要定义一个临时矩阵用于全局计算
         double *temp_A = (double*)malloc(N*N*sizeof(double));
         double *temp_B = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(temp_A, N, N);
-        comp(temp_A, temp_B, N-2, N-2, N);
+        // 注意：这里的 comp 函数需要适应全局矩阵
+        // 为此，我们假设 a = b = N-2， local_cols = N
+        // 直接调用 comp 函数对整个矩阵计算
+        for(int i = 1; i < N-1; i++) {
+            for(int j = 1; j < N-1; j++) {
+                temp_B[GLOBAL_INDEX(i,j)] = (temp_A[GLOBAL_INDEX(i-1,j)] +
+                                             temp_A[GLOBAL_INDEX(i,j+1)] +
+                                             temp_A[GLOBAL_INDEX(i+1,j)] +
+                                             temp_A[GLOBAL_INDEX(i,j-1)]) / 4.0;
+            }
+        }
         // 拷贝到 full_B2
         for(int i = 0; i < N*N; i++) {
             full_B2[i] = temp_B[i];
@@ -142,10 +152,7 @@ int main(int argc, char *argv[])
             }
             free(send_buffer);
         }
-        // 复制全局B2到B2
-        for(int i = 0; i < N*N; i++) {
-            full_B2[i] = full_B2[i];
-        }
+        // 复制全局B2到 full_B2（此处实际上无需操作，因为已在之前拷贝）
         free(full_A);
         free(full_B2);
     }
@@ -159,6 +166,26 @@ int main(int argc, char *argv[])
 
     // 计算B
     comp(A, B, a, b, local_cols);
+
+    // **修改部分开始：确保边界元素保持为0**
+    // 计算当前进程在进程网格中的行和列
+    int proc_row = id_procs / cols;
+    int proc_col = id_procs % cols;
+    // 计算全局起始行和列
+    int start_i = proc_row * a;
+    int start_j = proc_col * b;
+    // 遍历本地B的内部元素
+    for(int i = 1; i <= a; i++) {
+        for(int j = 1; j <= b; j++) {
+            int global_i = start_i + (i - 1);
+            int global_j = start_j + (j - 1);
+            // 如果是全局边界，则设置为0
+            if(global_i == 0 || global_j == 0 || global_i == N-1 || global_j == N-1) {
+                B[LOCAL_INDEX(i, j, local_cols)] = 0.0;
+            }
+        }
+    }
+    // **修改部分结束**
 
     // Gather all B parts to Proc#0
     if (id_procs == 0) {
@@ -180,12 +207,12 @@ int main(int argc, char *argv[])
         for(int p = 1; p < num_procs; p++) {
             double *recv_buffer = (double*)malloc(local_rows * local_cols * sizeof(double));
             MPI_Recv(recv_buffer, local_rows * local_cols, MPI_DOUBLE, p, 1, MPI_COMM_WORLD, &status);
-            int proc_row = p / cols;
-            int proc_col = p % cols;
+            int proc_row_p = p / cols;
+            int proc_col_p = p % cols;
             for(int i = 1; i <= a; i++) {
                 for(int j = 1; j <= b; j++) {
-                    int global_i = proc_row * a + (i - 1);
-                    int global_j = proc_col * b + (j - 1);
+                    int global_i = proc_row_p * a + (i - 1);
+                    int global_j = proc_col_p * b + (j - 1);
                     if(global_i < N && global_j < N)
                         full_B[GLOBAL_INDEX(global_i, global_j)] = recv_buffer[LOCAL_INDEX(i, j, local_cols)];
                 }
@@ -203,7 +230,15 @@ int main(int argc, char *argv[])
         // 计算全局B2
         double *computed_B2 = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(full_A, N, N);
-        comp(full_A, computed_B2, N-2, N-2, N);
+        // 重新计算 computed_B2
+        for(int i = 1; i < N-1; i++) {
+            for(int j = 1; j < N-1; j++) {
+                computed_B2[GLOBAL_INDEX(i,j)] = (full_A[GLOBAL_INDEX(i-1,j)] +
+                                                 full_A[GLOBAL_INDEX(i,j+1)] +
+                                                 full_A[GLOBAL_INDEX(i+1,j)] +
+                                                 full_A[GLOBAL_INDEX(i,j-1)]) / 4.0;
+            }
+        }
         if (check(full_B, computed_B2)) {
             printf("Done. No Error\n");
         } else {
