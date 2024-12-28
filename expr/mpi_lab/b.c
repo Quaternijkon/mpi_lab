@@ -21,21 +21,11 @@ int main(int argc, char *argv[]) {
     
     if (argc >= 2) {
         send_count = atoi(argv[1]);
+        recv_count = atoi(argv[1]);
         if (send_count <= 0) {
             if (world_rank == ROOT) {
                 printf("Invalid send_count provided. Using default value 1000.\n");
             }
-            send_count = 1000;
-        }
-    }
-
-    if (argc >= 3) {
-        recv_count = atoi(argv[2]);
-        if (recv_count <= 0) {
-            if (world_rank == ROOT) {
-                printf("Invalid recv_count provided. Using default value 1000.\n");
-            }
-            recv_count = 1000;
         }
     }
 
