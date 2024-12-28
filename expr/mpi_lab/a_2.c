@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
     MPI_Bcast(seqin, SEQ_SIZE, MPI_CHAR, 0, splitWorld);
 
     
-    printf("World Rank: %d, Split Rank: %d/%d, Received Seq: %s\n", 
+    printf("全局排名: %d, 分组排名: %d/%d, 收到信息: %s\n", 
            world_rank, split_rank, split_size, seqin);
 
     

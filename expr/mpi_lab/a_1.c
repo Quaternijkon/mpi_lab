@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
         groupsize = atoi(argv[1]);
         if (groupsize <= 0) {
             if (world_rank == 0) {
-                fprintf(stderr, "Invalid groupsize. It must be a positive integer.\n");
+                fprintf(stderr, "请输入一个正整数\n");
             }
             MPI_Abort(world_comm, 1);
         }
