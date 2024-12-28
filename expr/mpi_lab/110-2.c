@@ -61,9 +61,8 @@ void print_matrix(double *matrix, int num_rows, int num_cols, const char *name) 
 
 int main(int argc, char *argv[])
 {
-    double *A, *B;
-    double *B2_full = NULL; // 仅在主进程中使用
-
+    double *A, *B, *B2;
+    
     int id_procs, num_procs;
     MPI_Status status;
     MPI_Init(&argc, &argv);
@@ -85,71 +84,41 @@ int main(int argc, char *argv[])
     int local_rows = a + 2; // 包含上下边界
     int local_cols = b + 2; // 包含左右边界
 
-    // 根据进程号分配B2的大小
-    if(id_procs == 0){
-        // 主进程分配全局B2
-        A = (double*)malloc(local_rows * local_cols * sizeof(double));
-        B = (double*)malloc(local_rows * local_cols * sizeof(double));
-        B2_full = (double*)malloc(N * N * sizeof(double));
-        if (A == NULL || B == NULL || B2_full == NULL) {
-            fprintf(stderr, "Memory allocation failed for main process.\n");
-            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-        }
-    }
-    else{
-        // 其他进程分配局部B2
-        A = (double*)malloc(local_rows * local_cols * sizeof(double));
-        B = (double*)malloc(local_rows * local_cols * sizeof(double));
-        // 其他进程不需要使用B2，但为了保持代码一致性，可以分配
-        // 或者将B2去除
-        if (A == NULL || B == NULL) {
-            fprintf(stderr, "Memory allocation failed for process %d.\n", id_procs);
-            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-        }
-    }
+    A = (double*)malloc(local_rows * local_cols * sizeof(double));
+    B = (double*)malloc(local_rows * local_cols * sizeof(double));
+    B2= (double*)malloc(local_rows * local_cols * sizeof(double));
 
-    // 初始化所有子矩阵A和B为0
+    // 初始化所有子矩阵A为0
     for(int i = 0; i < local_rows * local_cols; i++) {
         A[i] = 0.0;
         B[i] = 0.0;
+        B2[i] = 0.0;
     }
 
-    // 主进程初始化全局矩阵A并分发子矩阵
+    // Proc#0 初始化全局矩阵A并分发子矩阵
     if (id_procs == 0) {
-        double *full_A = (double*)malloc(N * N * sizeof(double));
-        double *full_B2 = (double*)malloc(N * N * sizeof(double));
-        if (full_A == NULL || full_B2 == NULL) {
-            fprintf(stderr, "Memory allocation failed for full_A or full_B2 in main process.\n");
-            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-        }
-
+        double *full_A = (double*)malloc(N*N*sizeof(double));
+        double *full_B2 = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(full_A, N, N);
-
         // 计算全局B2用于验证
-        initialize_matrix(full_A, N, N); // 再次初始化temp_A
-        for(int i = 0; i < N * N; i++) {
-            full_B2[i] = 0.0; // Initialize full_B2 to 0
+        // 这里为了简化，直接调用comp函数在全局矩阵上计算
+        // 需要定义一个临时矩阵用于全局计算
+        double *temp_A = (double*)malloc(N*N*sizeof(double));
+        double *temp_B = (double*)malloc(N*N*sizeof(double));
+        initialize_matrix(temp_A, N, N);
+        comp(temp_A, temp_B, N-2, N-2, N);
+        // 拷贝到 full_B2
+        for(int i = 0; i < N*N; i++) {
+            full_B2[i] = temp_B[i];
         }
-
-        for(int i = 1; i < N-1; i++) {
-            for(int j = 1; j < N-1; j++) {
-                full_B2[GLOBAL_INDEX(i, j)] = (full_A[GLOBAL_INDEX(i-1, j)] +
-                                               full_A[GLOBAL_INDEX(i, j+1)] +
-                                               full_A[GLOBAL_INDEX(i+1, j)] +
-                                               full_A[GLOBAL_INDEX(i, j-1)]) / 4.0;
-            }
-        }
-
-        // 分发全局A到各个进程
+        free(temp_A);
+        free(temp_B);
+        // 将全局A分发到各个进程
         for(int p = 0; p < num_procs; p++) {
             int proc_row = p / cols;
             int proc_col = p % cols;
+            // 定义发送缓冲区
             double *send_buffer = (double*)malloc(local_rows * local_cols * sizeof(double));
-            if (send_buffer == NULL) {
-                fprintf(stderr, "Memory allocation failed for send_buffer in main process.\n");
-                MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-            }
-
             // 填充send_buffer，包括边界
             for(int i = 0; i < local_rows; i++) {
                 for(int j = 0; j < local_cols; j++) {
@@ -161,7 +130,6 @@ int main(int argc, char *argv[])
                         send_buffer[i * local_cols + j] = full_A[GLOBAL_INDEX(global_i, global_j)];
                 }
             }
-
             if(p == 0) {
                 // 直接拷贝到本地A
                 for(int i = 0; i < local_rows * local_cols; i++) {
@@ -172,20 +140,17 @@ int main(int argc, char *argv[])
                 // 发送给其他进程
                 MPI_Send(send_buffer, local_rows * local_cols, MPI_DOUBLE, p, 0, MPI_COMM_WORLD);
             }
-
             free(send_buffer);
         }
-
-        // 将全局B2复制到主进程的B2_full
-        for(int i = 0; i < N * N; i++) {
-            B2_full[i] = full_B2[i];
+        // 复制全局B2到B2
+        for(int i = 0; i < N*N; i++) {
+            full_B2[i] = full_B2[i];
         }
-
         free(full_A);
         free(full_B2);
     }
     else {
-        // 其他进程接收子矩阵A
+        // 接收子矩阵A
         MPI_Recv(A, local_rows * local_cols, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD, &status);
     }
 
@@ -195,20 +160,14 @@ int main(int argc, char *argv[])
     // 计算B
     comp(A, B, a, b, local_cols);
 
-    // 收集所有进程的B部分到主进程
+    // Gather all B parts to Proc#0
     if (id_procs == 0) {
-        double *full_B = (double*)malloc(N * N * sizeof(double));
-        if (full_B == NULL) {
-            fprintf(stderr, "Memory allocation failed for full_B in main process.\n");
-            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-        }
-
+        double *full_B = (double*)malloc(N*N*sizeof(double));
         // 初始化全局B为0
-        for(int i = 0; i < N * N; i++) {
+        for(int i = 0; i < N*N; i++) {
             full_B[i] = 0.0;
         }
-
-        // 收集主进程自身的B部分
+        // 收集自身的B部分
         for(int i = 1; i <= a; i++) {
             for(int j = 1; j <= b; j++) {
                 int global_i = 0 * a + (i - 1);
@@ -217,19 +176,12 @@ int main(int argc, char *argv[])
                     full_B[GLOBAL_INDEX(global_i, global_j)] = B[LOCAL_INDEX(i, j, local_cols)];
             }
         }
-
         // 接收其他进程的B部分
         for(int p = 1; p < num_procs; p++) {
             double *recv_buffer = (double*)malloc(local_rows * local_cols * sizeof(double));
-            if (recv_buffer == NULL) {
-                fprintf(stderr, "Memory allocation failed for recv_buffer in main process.\n");
-                MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-            }
-
             MPI_Recv(recv_buffer, local_rows * local_cols, MPI_DOUBLE, p, 1, MPI_COMM_WORLD, &status);
             int proc_row = p / cols;
             int proc_col = p % cols;
-
             for(int i = 1; i <= a; i++) {
                 for(int j = 1; j <= b; j++) {
                     int global_i = proc_row * a + (i - 1);
@@ -238,34 +190,21 @@ int main(int argc, char *argv[])
                         full_B[GLOBAL_INDEX(global_i, global_j)] = recv_buffer[LOCAL_INDEX(i, j, local_cols)];
                 }
             }
-
             free(recv_buffer);
         }
 
-        // **确保边界元素保持为0**
-        // 设置第一行和最后一行为0
-        for(int j = 0; j < N; j++) {
-            full_B[GLOBAL_INDEX(0, j)] = 0.0;
-            full_B[GLOBAL_INDEX(N-1, j)] = 0.0;
-        }
-        // 设置第一列和最后一列为0
-        for(int i = 0; i < N; i++) {
-            full_B[GLOBAL_INDEX(i, 0)] = 0.0;
-            full_B[GLOBAL_INDEX(i, N-1)] = 0.0;
-        }
-
         // 打印矩阵A和B
-        double *full_A = (double*)malloc(N * N * sizeof(double));
-        if(full_A == NULL){
-            fprintf(stderr, "Memory allocation failed for full_A in main process.\n");
-            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-        }
+        double *full_A = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(full_A, N, N);
         print_matrix(full_A, N, N, "A");
         print_matrix(full_B, N, N, "B");
 
         // 验证结果
-        if (check(full_B, B2_full)) {
+        // 计算全局B2
+        double *computed_B2 = (double*)malloc(N*N*sizeof(double));
+        initialize_matrix(full_A, N, N);
+        comp(full_A, computed_B2, N-2, N-2, N);
+        if (check(full_B, computed_B2)) {
             printf("Done. No Error\n");
         } else {
             printf("Error!\n");
@@ -273,24 +212,16 @@ int main(int argc, char *argv[])
 
         free(full_A);
         free(full_B);
-        free(full_B2);
-        free(B2_full);
+        free(computed_B2);
     }
     else {
-        // 其他进程发送B的部分到主进程
+        // 发送B的部分到Proc#0
         MPI_Send(B, local_rows * local_cols, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
     }
 
-    // 统一释放内存
     free(A);
     free(B);
-    if(id_procs == 0){
-        // 主进程已经释放了 B2_full 和 full_B2
-    }
-    else{
-        free(B2); // 其他进程释放 B2
-    }
-
+    free(B2);
     MPI_Finalize();
     return 0;
 }
