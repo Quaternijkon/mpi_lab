@@ -62,7 +62,7 @@ void print_matrix(double *matrix, int num_rows, int num_cols, const char *name) 
 int main(int argc, char *argv[])
 {
     double *A, *B, *B2;
-    
+
     int id_procs, num_procs;
     MPI_Status status;
     MPI_Init(&argc, &argv);
@@ -130,9 +130,10 @@ int main(int argc, char *argv[])
             // 填充send_buffer，包括边界
             for(int i = 0; i < local_rows; i++) {
                 for(int j = 0; j < local_cols; j++) {
-                    int global_i = proc_row * a + (i - 1);
-                    int global_j = proc_col * b + (j - 1);
-                    if(global_i < 0 || global_i >= N || global_j < 0 || global_j >= N)
+                    // 正确计算全局索引，考虑内部偏移
+                    int global_i = 1 + proc_row * a + (i - 1);
+                    int global_j = 1 + proc_col * b + (j - 1);
+                    if(global_i < 1 || global_i >= N-1 || global_j < 1 || global_j >= N-1)
                         send_buffer[i * local_cols + j] = 0.0; // 边界填充为0
                     else
                         send_buffer[i * local_cols + j] = full_A[GLOBAL_INDEX(global_i, global_j)];
@@ -150,7 +151,6 @@ int main(int argc, char *argv[])
             }
             free(send_buffer);
         }
-        // 复制全局B2到 full_B2（此处实际上无需操作，因为已在之前拷贝）
         free(full_A);
         free(full_B2);
     }
@@ -178,8 +178,9 @@ int main(int argc, char *argv[])
     // 遍历本地B的内部元素
     for(int i = 1; i <= a; i++) {
         for(int j = 1; j <= b; j++) {
-            int global_i = start_i + (i - 1);
-            int global_j = start_j + (j - 1);
+            // 正确计算全局索引，考虑内部偏移
+            int global_i = 1 + proc_row * a + (i - 1);
+            int global_j = 1 + proc_col * b + (j - 1);
             // 如果是全局边界，则设置为0
             if(global_i == 0 || global_j == 0 || global_i == N-1 || global_j == N-1) {
                 B[LOCAL_INDEX(i, j, local_cols)] = 0.0;
@@ -205,8 +206,8 @@ int main(int argc, char *argv[])
         // 收集自身的B部分
         for(int i = 1; i <= a; i++) {
             for(int j = 1; j <= b; j++) {
-                int global_i = 0 * a + (i - 1);
-                int global_j = 0 * b + (j - 1);
+                int global_i = 1 + 0 * a + (i - 1);
+                int global_j = 1 + 0 * b + (j - 1);
                 if(global_i < N && global_j < N)
                     full_B[GLOBAL_INDEX(global_i, global_j)] = B[LOCAL_INDEX(i, j, local_cols)];
             }
@@ -219,8 +220,8 @@ int main(int argc, char *argv[])
             int proc_col_p = p % cols;
             for(int i = 1; i <= a; i++) {
                 for(int j = 1; j <= b; j++) {
-                    int global_i = proc_row_p * a + (i - 1);
-                    int global_j = proc_col_p * b + (j - 1);
+                    int global_i = 1 + proc_row_p * a + (i - 1);
+                    int global_j = 1 + proc_col_p * b + (j - 1);
                     if(global_i < N && global_j < N)
                         full_B[GLOBAL_INDEX(global_i, global_j)] = recv_buffer[LOCAL_INDEX(i, j, local_cols)];
                 }
