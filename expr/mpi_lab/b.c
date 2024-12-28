@@ -14,12 +14,47 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
-    int send_count = 1000; 
+    
+    int send_count = 1000;
     int recv_count = 1000;
+
+    
+    if (argc >= 2) {
+        send_count = atoi(argv[1]);
+        if (send_count <= 0) {
+            if (world_rank == ROOT) {
+                printf("Invalid send_count provided. Using default value 1000.\n");
+            }
+            send_count = 1000;
+        }
+    }
+
+    if (argc >= 3) {
+        recv_count = atoi(argv[2]);
+        if (recv_count <= 0) {
+            if (world_rank == ROOT) {
+                printf("Invalid recv_count provided. Using default value 1000.\n");
+            }
+            recv_count = 1000;
+        }
+    }
+
+    
+    if (world_rank == ROOT) {
+        printf("Configuration:\n");
+        printf("  send_count = %d\n", send_count);
+        printf("  recv_count = %d\n", recv_count);
+        printf("  world_size = %d\n\n", world_size);
+    }
 
     
     int *send_buffer = (int *)malloc(send_count * world_size * sizeof(int));
     int *recv_buffer = (int *)malloc(recv_count * world_size * sizeof(int));
+
+    if (send_buffer == NULL || recv_buffer == NULL) {
+        fprintf(stderr, "Process %d: Memory allocation failed.\n", world_rank);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
 
     
     for(int i = 0; i < send_count * world_size; i++) {
@@ -57,6 +92,11 @@ int main(int argc, char *argv[]) {
     
     send_buffer = (int *)malloc(send_count * world_size * sizeof(int));
     recv_buffer = (int *)malloc(recv_count * world_size * sizeof(int));
+
+    if (send_buffer == NULL || recv_buffer == NULL) {
+        fprintf(stderr, "Process %d: Memory allocation failed.\n", world_rank);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
 
     
     for(int i = 0; i < send_count * world_size; i++) {
