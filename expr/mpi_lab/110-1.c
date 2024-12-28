@@ -4,10 +4,8 @@
 #include <time.h>
 #include <math.h>
 
-// 移除宏定义，并使用全局变量 N
 int N = 7;
 
-// 修改 INDEX 宏以使用全局变量 N
 #define INDEX(i, j) (((i) * N) + (j))
 
 void random_array(double *a, int num) {
@@ -70,9 +68,6 @@ void print_matrix(double *mat) {
 
 int main(int argc, char *argv[]) {
     double *A, *B, *B2;
-    A = (double*)malloc(N * N * sizeof(double));
-    B = (double*)malloc(N * N * sizeof(double));
-    B2 = (double*)malloc(N * N * sizeof(double));
 
     int id_procs, num_procs, num_1;
     MPI_Status status;
@@ -82,15 +77,14 @@ int main(int argc, char *argv[]) {
 
     num_1 = num_procs - 1;
 
-    // 主进程解析命令行参数并广播 N
+    // 主进程解析命令行参数并设置 N
     if (id_procs == num_1) {
         if (argc >= 2) {
-            N = atoi(argv[1]);
-            if (N <= 0) {
-                if (id_procs == num_1) {
-                    printf("Invalid matrix size provided. Using default N = 7.\n");
-                }
-                N = 7;
+            int input_N = atoi(argv[1]);
+            if (input_N > 0) {
+                N = input_N;
+            } else {
+                printf("Invalid matrix size provided. Using default N = 7.\n");
             }
         }
     }
@@ -98,21 +92,22 @@ int main(int argc, char *argv[]) {
     // 广播 N 给所有进程
     MPI_Bcast(&N, 1, MPI_INT, num_1, MPI_COMM_WORLD);
 
-    if (id_procs == num_1) {
-        // 根据新的 N 分配内存
-        free(A);
-        free(B);
-        free(B2);
-        A = (double*)malloc(N * N * sizeof(double));
-        B = (double*)malloc(N * N * sizeof(double));
-        B2 = (double*)malloc(N * N * sizeof(double));
+    // 所有进程根据 N 分配内存
+    A = (double*)malloc(N * N * sizeof(double));
+    B = (double*)malloc(N * N * sizeof(double));
+    B2 = (double*)malloc(N * N * sizeof(double));
 
+    if (A == NULL || B == NULL || B2 == NULL) {
+        fprintf(stderr, "Process %d: Memory allocation failed for N=%d\n", id_procs, N);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
+
+    if (id_procs == num_1) {
         random_array(A, N * N);
         initialize_matrix(B);
         comp(A, B2);
     }
 
-    // 同步所有进程
     MPI_Barrier(MPI_COMM_WORLD);
 
     // 开始计时
@@ -144,7 +139,10 @@ int main(int argc, char *argv[]) {
     if (id_procs != num_1) {
         for (int i = 1; i <= ctn; i++) {
             for (int j = 1; j < N - 1; j++) {
-                B[INDEX(i, j)] = (A[INDEX(i - 1, j)] + A[INDEX(i, j + 1)] + A[INDEX(i + 1, j)] + A[INDEX(i, j - 1)]) / 4.0;
+                // 确保索引不越界
+                if ((i - 1) >= 0 && (i + 1) < N && (j - 1) >= 0 && (j + 1) < N) {
+                    B[INDEX(i, j)] = (A[INDEX(i - 1, j)] + A[INDEX(i, j + 1)] + A[INDEX(i + 1, j)] + A[INDEX(i, j - 1)]) / 4.0;
+                }
             }
         }
     }
