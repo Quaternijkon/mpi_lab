@@ -62,7 +62,7 @@ void print_matrix(double *matrix, int num_rows, int num_cols, const char *name) 
 int main(int argc, char *argv[])
 {
     double *A, *B, *B2;
-    
+
     int id_procs, num_procs;
     MPI_Status status;
     MPI_Init(&argc, &argv);
@@ -101,12 +101,18 @@ int main(int argc, char *argv[])
         double *full_B2 = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(full_A, N, N);
         // 计算全局B2用于验证
-        // 这里为了简化，直接调用comp函数在全局矩阵上计算
-        // 需要定义一个临时矩阵用于全局计算
         double *temp_A = (double*)malloc(N*N*sizeof(double));
         double *temp_B = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(temp_A, N, N);
-        comp(temp_A, temp_B, N-2, N-2, N);
+        // 计算全局B2
+        for(int i = 1; i < N-1; i++) {
+            for(int j = 1; j < N-1; j++) {
+                temp_B[GLOBAL_INDEX(i, j)] = (temp_A[GLOBAL_INDEX(i-1, j)] +
+                                              temp_A[GLOBAL_INDEX(i, j+1)] +
+                                              temp_A[GLOBAL_INDEX(i+1, j)] +
+                                              temp_A[GLOBAL_INDEX(i, j-1)]) / 4.0;
+            }
+        }
         // 拷贝到 full_B2
         for(int i = 0; i < N*N; i++) {
             full_B2[i] = temp_B[i];
@@ -144,7 +150,7 @@ int main(int argc, char *argv[])
         }
         // 复制全局B2到B2
         for(int i = 0; i < N*N; i++) {
-            full_B2[i] = full_B2[i];
+            B2[i] = full_B2[i];
         }
         free(full_A);
         free(full_B2);
@@ -193,6 +199,18 @@ int main(int argc, char *argv[])
             free(recv_buffer);
         }
 
+        // **重要修改点：确保边界元素保持为0**
+        // 设置第一行和最后一行为0
+        for(int j = 0; j < N; j++) {
+            full_B[GLOBAL_INDEX(0, j)] = 0.0;
+            full_B[GLOBAL_INDEX(N-1, j)] = 0.0;
+        }
+        // 设置第一列和最后一列为0
+        for(int i = 0; i < N; i++) {
+            full_B[GLOBAL_INDEX(i, 0)] = 0.0;
+            full_B[GLOBAL_INDEX(i, N-1)] = 0.0;
+        }
+
         // 打印矩阵A和B
         double *full_A = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(full_A, N, N);
@@ -200,11 +218,7 @@ int main(int argc, char *argv[])
         print_matrix(full_B, N, N, "B");
 
         // 验证结果
-        // 计算全局B2
-        double *computed_B2 = (double*)malloc(N*N*sizeof(double));
-        initialize_matrix(full_A, N, N);
-        comp(full_A, computed_B2, N-2, N-2, N);
-        if (check(full_B, computed_B2)) {
+        if (check(full_B, B2)) {
             printf("Done. No Error\n");
         } else {
             printf("Error!\n");
@@ -212,7 +226,7 @@ int main(int argc, char *argv[])
 
         free(full_A);
         free(full_B);
-        free(computed_B2);
+        free(B2);
     }
     else {
         // 发送B的部分到Proc#0
