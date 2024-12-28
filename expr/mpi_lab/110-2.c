@@ -148,7 +148,7 @@ int main(int argc, char *argv[])
             }
             free(send_buffer);
         }
-        // 复制全局B2到B2
+        // 复制全局B2到 B2
         for(int i = 0; i < N*N; i++) {
             B2[i] = full_B2[i];
         }
@@ -226,7 +226,7 @@ int main(int argc, char *argv[])
 
         free(full_A);
         free(full_B);
-        free(B2);
+        free(B2); // 注意这里不要重复释放 B2
     }
     else {
         // 发送B的部分到Proc#0
@@ -235,7 +235,7 @@ int main(int argc, char *argv[])
 
     free(A);
     free(B);
-    free(B2);
+    free(B2); // 对于非0进程，确保 B2 已经被分配且只释放一次
     MPI_Finalize();
     return 0;
 }
