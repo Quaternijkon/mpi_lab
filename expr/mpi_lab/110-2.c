@@ -1,17 +1,18 @@
-#include <mpi.h>
+#include <mpi.h> 
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 
-#ifndef N
-#define N 7 // 根据您的输出，假设N=7
-#endif
+// 定义全局变量 N，默认值为 7
+int N = 7;
 
 // 本地索引宏
 #define LOCAL_INDEX(i, j, cols) (((i)*(cols)) + (j))
 
-// 全局索引宏，用于打印完整矩阵
-#define GLOBAL_INDEX(i, j) (((i)*N)+(j))
+// 将宏替换为内联函数以使用全局变量 N
+static inline int GLOBAL_INDEX(int i, int j) {
+    return i * N + j;
+}
 
 // 初始化矩阵A，使其元素由索引i, j唯一确定
 void initialize_matrix(double *a, int num_rows, int num_cols) {
@@ -68,6 +69,22 @@ int main(int argc, char *argv[])
     MPI_Init(&argc, &argv);
     MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
     MPI_Comm_rank(MPI_COMM_WORLD, &id_procs);
+
+    // 根进程解析命令行参数
+    if (id_procs == 0) {
+        if (argc > 1) {
+            int input_N = atoi(argv[1]);
+            if(input_N > 0){
+                N = input_N;
+            }
+            else{
+                printf("Invalid N value provided. Using default N = 7.\n");
+            }
+        }
+    }
+
+    // 广播 N 给所有进程
+    MPI_Bcast(&N, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
     // 假设num_procs是一个完全平方数
     int rows = (int)sqrt(num_procs);
