@@ -17,13 +17,16 @@ int main(int argc, char *argv[]) {
     int send_count = 1000; 
     int recv_count = 1000;
 
+    
     int *send_buffer = (int *)malloc(send_count * world_size * sizeof(int));
     int *recv_buffer = (int *)malloc(recv_count * world_size * sizeof(int));
 
+    
     for(int i = 0; i < send_count * world_size; i++) {
         send_buffer[i] = world_rank;
     }
 
+    
     double start_time = MPI_Wtime();
 
     for(int i = 0; i < world_size; i++) {
@@ -40,18 +43,27 @@ int main(int argc, char *argv[]) {
 
     printf("Process %d: Fake MPI_Alltoall Time = %f seconds\n", world_rank, simulation_time);
 
+    
     free(send_buffer);
     free(recv_buffer);
 
+    
+    double total_simulation_time;
+    MPI_Reduce(&simulation_time, &total_simulation_time, 1, MPI_DOUBLE, MPI_SUM, ROOT, MPI_COMM_WORLD);
+
+    
     MPI_Barrier(MPI_COMM_WORLD);
 
+    
     send_buffer = (int *)malloc(send_count * world_size * sizeof(int));
     recv_buffer = (int *)malloc(recv_count * world_size * sizeof(int));
 
+    
     for(int i = 0; i < send_count * world_size; i++) {
         send_buffer[i] = world_rank;
     }
 
+    
     start_time = MPI_Wtime();
 
     MPI_Alltoall(send_buffer, send_count, MPI_INT, recv_buffer, recv_count, MPI_INT, MPI_COMM_WORLD);
@@ -61,8 +73,22 @@ int main(int argc, char *argv[]) {
 
     printf("Process %d: MPI_Alltoall Time = %f seconds\n", world_rank, alltoall_time);
 
+    
     free(send_buffer);
     free(recv_buffer);
+
+    
+    double total_alltoall_time;
+    MPI_Reduce(&alltoall_time, &total_alltoall_time, 1, MPI_DOUBLE, MPI_SUM, ROOT, MPI_COMM_WORLD);
+
+    
+    if(world_rank == ROOT) {
+        double average_simulation_time = total_simulation_time / world_size;
+        double average_alltoall_time = total_alltoall_time / world_size;
+
+        printf("\nAverage Fake MPI_Alltoall Time = %f seconds\n", average_simulation_time);
+        printf("Average MPI_Alltoall Time = %f seconds\n", average_alltoall_time);
+    }
 
     MPI_Finalize();
     return 0;
