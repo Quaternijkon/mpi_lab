@@ -106,9 +106,7 @@ int main(int argc, char *argv[])
         double *temp_A = (double*)malloc(N*N*sizeof(double));
         double *temp_B = (double*)malloc(N*N*sizeof(double));
         initialize_matrix(temp_A, N, N);
-        // 注意：这里的 comp 函数需要适应全局矩阵
-        // 为此，我们假设 a = b = N-2， local_cols = N
-        // 直接调用 comp 函数对整个矩阵计算
+        // 重新实现 comp 函数对全局矩阵进行计算
         for(int i = 1; i < N-1; i++) {
             for(int j = 1; j < N-1; j++) {
                 temp_B[GLOBAL_INDEX(i,j)] = (temp_A[GLOBAL_INDEX(i-1,j)] +
@@ -164,10 +162,13 @@ int main(int argc, char *argv[])
     // 同步所有进程
     MPI_Barrier(MPI_COMM_WORLD);
 
+    // **添加计时器开始**
+    double start_time = MPI_Wtime();
+
     // 计算B
     comp(A, B, a, b, local_cols);
 
-    // **修改部分开始：确保边界元素保持为0**
+    // 确保边界元素保持为0
     // 计算当前进程在进程网格中的行和列
     int proc_row = id_procs / cols;
     int proc_col = id_procs % cols;
@@ -185,7 +186,14 @@ int main(int argc, char *argv[])
             }
         }
     }
-    // **修改部分结束**
+
+    // **添加计时器结束**
+    double end_time = MPI_Wtime();
+    double local_elapsed = end_time - start_time;
+    double max_elapsed;
+
+    // 计算所有进程中的最大用时
+    MPI_Reduce(&local_elapsed, &max_elapsed, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
     // Gather all B parts to Proc#0
     if (id_procs == 0) {
@@ -226,6 +234,9 @@ int main(int argc, char *argv[])
         print_matrix(full_A, N, N, "A");
         print_matrix(full_B, N, N, "B");
 
+        // 打印计算用时
+        printf("Computation Time: %lf seconds\n", max_elapsed);
+
         // 验证结果
         // 计算全局B2
         double *computed_B2 = (double*)malloc(N*N*sizeof(double));
@@ -253,6 +264,9 @@ int main(int argc, char *argv[])
         // 发送B的部分到Proc#0
         MPI_Send(B, local_rows * local_cols, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
     }
+
+    // 只有根进程需要打印计时信息，因此其他进程不需要打印
+    // 计时信息已经通过MPI_Reduce汇总并在根进程打印
 
     free(A);
     free(B);
